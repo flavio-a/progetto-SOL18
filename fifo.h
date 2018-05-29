@@ -39,7 +39,7 @@ typedef struct fifo {
 
 /**
  * @brief Inizializza una nuova coda vuota
- * @return la nuova Coda
+ * @return la nuova coda
  */
 fifo_t create_fifo();
 
