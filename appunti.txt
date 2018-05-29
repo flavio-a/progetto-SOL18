@@ -1,0 +1,33 @@
+La gestione del server avviene con 2 + ThreadsInPool thread:
+* il primo, avviato quando viene lanciato il server, si occupa di leggere il file
+  di configurazione, inizializzare la coda condivisa e il socket, creare gli altri
+  thread, infine va in attesa. Da questo momento in poi diviene il thread
+  dedicato a gestire i segnali, e si attiva solo quando ne viene ricevuto uno.
+* il secondo è il listener: resta in attesa di nuove connessioni sul socket e/o
+  di ricevere messaggi sulle connessioni già aperte. Se riceve un messaggio, lo
+  inserisce in una coda condivisa.
+* gli altri ThreadsInPool thread sono worker, restano in attesa sulla coda
+  condivisa di avere qualcosa da fare; non appena estraggono un'operazione
+  dalla coda la eseguono rispondendo direttamente al client che l'ha richiesta.
+
+Su connections.h è documentato il protocollo di comunicazione client-server
+
+I thread worker e il listener comunicano tramite una coda condivisa su cui
+vengono messi i fd dei client che hanno mandato una richiesta. Quando il listener
+trova un descrittore pronto, lo inserisce nella coda e lo rimuove dalla bitmap.
+Quando un worker finisce di servire un fd lo comunica al listener tramite una
+variabile condivisa e gli invia un segnale SIGUSR2 (per interrompere la select).
+Quando termina una select, il listener verifica se è stato interrotto da un segnale
+(e in questo caso verifica se c'è qualche fd da rimettere nella bitmap) oppure
+se c'è qualche nuova connessione in attesa.
+
+Ogni worker e il listener hanno una comunicazione diretta, formata da una
+variabile di informazione e un ack. Se l'ack è a 0 vuol dire che il worker può
+scrivere nella variabile di informazione, se l'ack è a 1 vuol dire che il
+listener deve leggere il valore.
+
+Se il gestore dei segnali riceve un segnale SIGUSR1 lo gestisce scrivendo su file
+quello che deve scrivere (durante questa operazione non gestisce altri segnali).
+Se riceve SIGINT, SIGTERM o SIGQUIT ritorna al main (deve anche mandare dei
+segnali di interruzione agli altri thread?), che si occupa di liberare la
+memoria allocata.

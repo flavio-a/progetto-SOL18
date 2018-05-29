@@ -1,0 +1,5 @@
+- cercare una libreria per parsare il file di configurazione
+- verificare se nella comunicazione tra worker e listener si può ridurre la
+  sezione critica
+- scrivere il signal_handler
+- implementare la gestione delle varie operazioni

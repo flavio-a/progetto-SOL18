@@ -1,0 +1,10 @@
+# ignores files without an extensio
+*
+!/**/
+!*.*
+
+DATA/
+doc/
+*.o
+README.txt
+README.doxygen
