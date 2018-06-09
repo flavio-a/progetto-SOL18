@@ -14,8 +14,6 @@
 #include "icl_hash.h"
 #include "lock.h"
 
-#define KEY_T char* /**< il tipo delle chiavi dell'hashtable */
-
 /**
  * @struct htable_t
  * @brief Hashtable condivisa che contiene un insieme di stringhe
@@ -31,23 +29,22 @@
  * @struct htable
  * @brief Implementazione di htable_t
  * @var struct htable::htable L'hashtable senza sincronizzazione
- * @var struct htable::reader Numero di lettori che stanno operando
- * @var struct htable::writer Numero di scrittori che stanno operando
- * @var struct htable::wait_reader Numero di lettori in attesa
- * @var struct htable::wait_writer Numero di scrittori in attesa
- * @var struct htable::mutex Mutex interna dell'hashtable' per implementare la
+ * @var struct htable::reader_in Numero di lettori che stanno operando
+ * @var struct htable::writer_in Numero di scrittori che stanno operando
+ * @var struct htable::reader_wait Numero di lettori in attesa
+ * @var struct htable::writer_wait Numero di scrittori in attesa
+ * @var struct htable::mutex Mutex interna dell'hashtable per implementare la
  *                           sincronizzazione
- * @var struct htable::cond_read Variabile di condizione interna su cui si bloccano
- *                             i thread lettori se trovano qualche scrittore
- * @var struct htable::cond_read Variabile di condizione interna su cui si bloccano
- *                             i thread scrittori se qualcun altro sta usando la
- *                             hashtable
+ * @var struct htable::cond_reader Variabile di condizione interna su cui si bloccano
+ *                             i thread lettori
+ * @var struct htable::cond_writer Variabile di condizione interna su cui si bloccano
+ *                             i thread scrittori
  */
 typedef struct htable {
-	icl_hash_t htable;
-	int reader, writer, wait_reader, wait_writer;
+	icl_hash_t* htable;
+	int reader_in, writer_in, reader_wait, writer_wait;
 	pthread_mutex_t mutex;
-	pthread_cond_t cond_read, cond_write;
+	pthread_cond_t cond_reader, cond_writer;
 } htable_t;
 
 
@@ -55,7 +52,7 @@ typedef struct htable {
  * @brief Inizializza una nuova hashtable vuota
  * @return la nuova hashtable
  */
-htable_t* ts_hash_create(int nbuckets);
+htable_t* hash_create(int nbuckets);
 
 /**
  * @brief Elimina un'hashtable per liberare la memoria
@@ -71,7 +68,7 @@ int ts_hash_destroy(htable_t* ht);
  * @param key La chiave da cercare
  * @return true se la chiave è presente, false altrimenti
  */
-bool ts_hash_find(htable_t* ht, KEY_T key);
+bool ts_hash_find(htable_t* ht, char* key);
 
 /**
  * @brief Thread-safe insert
@@ -81,7 +78,7 @@ bool ts_hash_find(htable_t* ht, KEY_T key);
  * @param key La chiave da inserire
  * @return true se la chiave era già presente, false altrimenti
  */
-bool ts_hash_insert(htable_t* ht, KEY_T key);
+bool ts_hash_insert(htable_t* ht, char* key);
 
 /**
  * @brief Thread-safe delete
@@ -91,6 +88,6 @@ bool ts_hash_insert(htable_t* ht, KEY_T key);
  * @param key La chiave da eliminare
  * @return true se la chiave era presente, false altrimenti
  */
-bool ts_hash_delete(htable_t* ht, KEY_T key);
+bool ts_hash_delete(htable_t* ht, char* key);
 
 #endif /* CHATTERBOX_HASH_H_ */

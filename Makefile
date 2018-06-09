@@ -94,7 +94,7 @@ doc:
 
 ########################### makerules per eseguire i test intermedi
 
-TESTS = connections fifo
+TESTS = connections fifo hashtable
 
 .PHONY: cleantest runtestconnections runtestfifo
 
@@ -108,7 +108,11 @@ runtestconnections: testconnections
 	@echo "********** Test superato"
 
 runtestfifo: testfifo
-	./$< > /dev/null
+	./$<
+	@echo "********** Test superato"
+
+runtesthashtable: testhashtable
+	./$<
 	@echo "********** Test superato"
 
 cleantest:

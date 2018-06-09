@@ -31,3 +31,26 @@ quello che deve scrivere (durante questa operazione non gestisce altri segnali).
 Se riceve SIGINT, SIGTERM o SIGQUIT ritorna al main (deve anche mandare dei
 segnali di interruzione agli altri thread?), che si occupa di liberare la
 memoria allocata.
+
+La politica lettori-scrittori è gestita così:
+* lettore:
+    per entrare:
+        - se non ci sono scrittori dentro o in coda, entra
+        - altrimenti si mette in attesa finché non ci sono più scrittori dentro
+    quando esce, solo se è l'ultimo lettore ad uscire:
+        - se ci sono scrittori in coda, signal agli scrittori
+        - altrimenti broadcast ai lettori in coda (in teoria non serve)
+* scrittore:
+    per entrare:
+        - se non c'è nessuno dentro e lettori in coda entra
+        - altrimenti si mette in attesa finché non c'è più nessuno dentro
+    quando esce:
+        - se ci sono lettori in coda, broadcast ai lettori
+        - altrimenti signal agli scrittori
+Il fatto che i lettori diano la precedenza alla riattivazione degli scrittori
+e viceversa garantisce che non ci sia starvation di nessuno dei due.
+Ci sono problemi di equità della politica in caso di riattivazioni spurie dato
+che queste permettono di superare altri thread in coda con precedenza maggiore
+della propria. Dato però che le riattivazioni spurie dovrebbero essere rare,
+questo non dovrebbe comunque causare problemi tangibili all'esecuzione del
+programma (soluzione dello struzzo per i deadlock).

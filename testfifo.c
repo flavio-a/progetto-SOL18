@@ -7,9 +7,9 @@
 
 #include "fifo.h"
 
-#define M 3
-#define N 10
-#define K 10
+#define M 30
+#define N 100
+#define K 100000
 #define MAX_MSG 10000
 
 static fifo_t buffer;
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
 
 	// controllo del risultato
 	if (!ts_is_empty(buffer))
-		printf("%d\n", ts_pop(&buffer));
+		fprintf(stderr, "Errore: %d rimasto nel buffer\n", ts_pop(&buffer));
 	qsort(prodotti, K, sizeof(int), cmpfunc);
 	qsort(consumati, K, sizeof(int), cmpfunc);
 	for (int i = 0; i < K; ++i){
