@@ -3,9 +3,17 @@
 !/**/
 !*.*
 
-DATA/
 doc/
 *.o
 README.txt
 README.doxygen
 chatterbox18.pdf
+
+# tests, not removed
+#DATA/
+#testfile.sh
+#testconf.sh
+#testgroups.sh
+#testleaks.sh
+#teststress.sh
+
