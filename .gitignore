@@ -3,6 +3,7 @@
 !/**/
 !*.*
 
+.fuse_*
 doc/
 *.o
 README.txt

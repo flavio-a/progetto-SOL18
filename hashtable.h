@@ -81,13 +81,13 @@ bool ts_hash_find(htable_t* ht, char* key);
 bool ts_hash_insert(htable_t* ht, char* key);
 
 /**
- * @brief Thread-safe delete
+ * @brief Thread-safe remove
  *
- * Elimina una chiave
+ * Rimuove una chiave
  * @param ht L'hashtable da cui eliminare la chiave
  * @param key La chiave da eliminare
  * @return true se la chiave era presente, false altrimenti
  */
-bool ts_hash_delete(htable_t* ht, char* key);
+bool ts_hash_remove(htable_t* ht, char* key);
 
 #endif /* CHATTERBOX_HASH_H_ */

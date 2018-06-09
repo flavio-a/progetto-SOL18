@@ -73,12 +73,13 @@ int main(int argc, char** argv) {
 	sleep(3);
 
 	// controllo del risultato
+	printf("Inizio controllo del risultato\n");
 	if (!ts_is_empty(buffer))
 		fprintf(stderr, "Errore: %d rimasto nel buffer\n", ts_pop(&buffer));
 	qsort(prodotti, K, sizeof(int), cmpfunc);
 	qsort(consumati, K, sizeof(int), cmpfunc);
 	for (int i = 0; i < K; ++i){
-		fprintf(stdout, "%d   %d\n", prodotti[i], consumati[i]);
+		// fprintf(stdout, "%d   %d\n", prodotti[i], consumati[i]);
 		if (prodotti[i] != consumati[i]) {
 			fprintf(stderr, "ERROR\n");
 			exit(EXIT_FAILURE);

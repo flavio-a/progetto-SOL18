@@ -73,7 +73,8 @@ bool ts_hash_find(htable_t* ht, char* key) {
 
 // scrittore
 bool ts_hash_insert(htable_t* ht, char* key) {
-	bool val = true;
+	bool* val = malloc(sizeof(bool));
+	*val = true;
 
 	// prologo dell'accesso in lettura
 	error_handling_lock(&(ht->mutex));
@@ -91,7 +92,7 @@ bool ts_hash_insert(htable_t* ht, char* key) {
 	}
 
 	// scrittura
-	void* res = icl_hash_insert(ht->htable, (void*)key, &val);
+	void* res = icl_hash_insert(ht->htable, (void*)key, val);
 
 	// epilogo dell’accesso in scrittura
 	error_handling_lock(&(ht->mutex));
@@ -108,7 +109,7 @@ bool ts_hash_insert(htable_t* ht, char* key) {
 }
 
 // scrittore
-bool ts_hash_delete(htable_t* ht, char* key) {
+bool ts_hash_remove(htable_t* ht, char* key) {
 	// prologo dell'accesso in scrittura
 	error_handling_lock(&(ht->mutex));
 	if (ht->reader_in == 0 && ht->writer_in == 0 && ht->reader_wait == 0) {
