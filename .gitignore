@@ -1,4 +1,4 @@
-# ignores files without an extensio
+# ignores files without an extension
 *
 !/**/
 !*.*
@@ -8,3 +8,4 @@ doc/
 *.o
 README.txt
 README.doxygen
+chatterbox18.pdf
