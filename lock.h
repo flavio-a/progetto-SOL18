@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #define LOCK_RETRY_TIME 1 /**< Tempo di attesa in secondi dopo un tentativo di
                                lock fallito */

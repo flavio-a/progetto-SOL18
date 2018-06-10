@@ -27,7 +27,7 @@ htable_t* hash_create(int nbuckets) {
 
 int ts_hash_destroy(htable_t* ht) {
 	error_handling_lock(&(ht->mutex));
-	int res = icl_hash_destroy(ht->htable, &free, NULL);
+	int res = icl_hash_destroy(ht->htable, &free, &free);
 	error_handling_unlock(&(ht->mutex));
 	if (res == 0)
 		free(ht);

@@ -24,7 +24,10 @@ se c'è qualche nuova connessione in attesa.
 Ogni worker e il listener hanno una comunicazione diretta, formata da una
 variabile di informazione e un ack. Se l'ack è a 0 vuol dire che il worker può
 scrivere nella variabile di informazione, se l'ack è a 1 vuol dire che il
-listener deve leggere il valore.
+listener deve leggere il valore. Non c'è bisogno di lock su questa comunicazione
+perché è a due entità, ognuna che lavora solo se l'ack ha il suo valore e che
+una volta finita l'elaborazione cambia l'ack al valore dell'altra (quindi
+agiscono per forza alternate)
 
 Se il gestore dei segnali riceve un segnale SIGUSR1 lo gestisce scrivendo su file
 quello che deve scrivere (durante questa operazione non gestisce altri segnali).
