@@ -35,7 +35,17 @@
  * i dettagli).
  * Per trasmettere un messaggio, il protocollo prevede di inviare inizialmente
  * l'header del messaggio, poi se necessario il body. Per trasmettere il body
- * si scrivono in sequenza
+ * si scrivono in sequenza l'header del body (che contiene la dimensione del
+ * buffer del body) e il buffer del body.
+ *
+ * Una comunicazione è strutturata nel seguente modo: il client invia al server
+ * un messaggio, formato da header e body (anche se l'operazione non prevede un
+ * body il client lo invia comunque, con lunghezza 0). Il server riceve ed
+ * elabora il messaggio, poi risponde al client con solo un header la cui
+ * operazione corrisponde all'esito della richiesta.
+ * L'altra possibilità è che il server invii al client un intero messaggio (per
+ * esempio a seguito di una richiesta di invio da parte di un altro client), nel
+ * qual caso il client lo legge senza mandare nessun tipo di risposta al server.
  */
 
  // -------- connection handlers --------
@@ -116,6 +126,8 @@ int readMsg(long fd, message_t *msg);
 /**
  * @function sendRequest
  * @brief Invia un messaggio di richiesta al server
+ *
+ * Se il messaggio non ha un body (msg->data == NULL) invia solo l'header
  *
  * @param fd     descrittore della connessione
  * @param msg    puntatore al messaggio da inviare

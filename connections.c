@@ -182,6 +182,8 @@ int sendRequest(long fd, message_t *msg) {
 	int result = sendByte(fd, &(msg->hdr), sizeof(message_hdr_t));
 	if (result <= 0)
 		return result;  //errno già impostato da readByte
+	if (msg->data == NULL)
+		return result;
 	return sendData(fd, &(msg->data));
 }
 

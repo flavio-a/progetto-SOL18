@@ -1,5 +1,5 @@
 - cercare una libreria per parsare il file di configurazione
-- verificare se nella comunicazione tra worker e listener si può ridurre la
-  sezione critica
-- scrivere il signal_handler
+- modificare l'hashtable per contenere una struttura dati più complessa (con
+  fd = 0 se nick disconnesso, altrimenti fd = quello su cui è connesso, e la
+  history)
 - implementare la gestione delle varie operazioni

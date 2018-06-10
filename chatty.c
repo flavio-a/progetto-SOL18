@@ -255,6 +255,9 @@ void* worker_thread(void* arg) {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto un qualche tipo di messaggio, ci faccio le cose\n");
 			#endif
+			// Quando scrive qualcosa deve sempre controllare se il descrittore
+			// è stato chiuso (ritorna -1, errno == EPIPE), in tal caso aggiornare
+			// i nickname connessi di conseguenza
 			switch (msg.hdr.op) {
 				case REGISTER_OP:
 
@@ -377,6 +380,7 @@ int main(int argc, char *argv[]) {
 	// Libera la memoria che ha occupato all'inizio del programma
 	clear_fifo(&queue);
 	free(freefd);
+	free(freefd_ack);
 	// free(freefd_lock);
 	ts_hash_destroy(nickname_htable);
 
