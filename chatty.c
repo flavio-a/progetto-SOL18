@@ -55,7 +55,7 @@ char* freefd_ack;
 /**
  * Flag per segnalare al listener che ha ricevuto un SIGUSR2
  */
-volatile sig_atomic_t received_sigusr2;
+volatile sig_atomic_t received_sigusr2 = false;
 
 /**
  * Tid del listener
@@ -66,6 +66,12 @@ pthread_t listener;
  * Hashtable condivisa che contiene i nickname registrati
  */
 htable_t* nickname_htable;
+
+/**
+ * Informazioni sui client connessi
+ */
+int num_connected = 0;
+pthread_mutex_t connected_mutex;
 
 /**
  * @brief Funzione che spiega l'utilizzo del server
@@ -109,6 +115,15 @@ void signal_handler_thread() {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto segnale SIGUSR1\n");
 			#endif
+			// temporaneo, per il debug
+			int i, j, p = 0;
+			char* key;
+			nickname_t* val;
+			icl_hash_foreach(nickname_htable, i, j, (void*)key, (void*)val) {
+				if (val->fd != 0) {
+					fprintf(stderr, "Connesso %s\n", key);
+				}
+			}
 			// gestire il segnale
 		}
 		if (sig_received == SIGINT || sig_received == SIGTERM || sig_received == SIGQUIT) {
@@ -130,6 +145,26 @@ void signal_handler_thread() {
  */
 static void siguser2_handler(int signum) {
 	received_sigusr2 = true;
+}
+
+/**
+ * TODOC
+ */
+void responseConnectedList(message_t* msg) {
+	char* conn_list = malloc(num_connected * sizeof(char) * (MAX_NAME_LENGTH + 1));
+	// TODO: implementazione più ragionevole di "scorri tutta l'hashtable"
+	int i, j, p = 0;
+	char* key;
+	nickname_t* val;
+	icl_hash_foreach(nickname_htable, i, j, (void*)key, (void*)val) {
+		if (val->fd != 0) {
+			strncpy(conn_list[p * (MAX_NAME_LENGTH + 1)], key, MAX_NAME_LENGTH + 1);
+			++p;
+		}
+	}
+	assert(p == num_connected);
+	setHeader(&response, OP_OK, NULL);
+	setData(&response, NULL, conn_list, num_connected);
 }
 
 /**
@@ -255,16 +290,53 @@ void* worker_thread(void* arg) {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto un qualche tipo di messaggio, ci faccio le cose\n");
 			#endif
+			// Messaggio da inviare in risposta al client
+			message_t response;
 			// Quando scrive qualcosa deve sempre controllare se il descrittore
 			// è stato chiuso (ritorna -1, errno == EPIPE), in tal caso aggiornare
 			// i nickname connessi di conseguenza
 			switch (msg.hdr.op) {
 				case REGISTER_OP:
-
+					if (ts_hash_insert(nickname_htable, msg.hdr.sender)) {
+						#ifdef DEBUG
+							fprintf(stderr, "Richiesta di registrare un nickname già esistente\n");
+						#endif
+						setHeader(&response, OP_NICK_ALREADY, NULL);
+						setData(&response, NULL, NULL, 0);
+					}
+					else {
+						pthread_mutex_lock(&connected_mutex);
+						responseConnectedList(&response);
+						pthread_mutex_unlock(&connected_mutex);
+					}
+					break;
+				case CONNECT_OP:
+					if (ts_hash_find(nickname_htable, msg.hdr.sender) != NULL) {
+						pthread_mutex_lock(&connected_mutex);
+						++num_connected;
+						responseConnectedList(&response);
+						pthread_mutex_unlock(&connected_mutex);
+					}
+					else {
+						#ifdef DEBUG
+							fprintf(stderr, "Richiesta di connessione di un nickname inesistente\n");
+						#endif
+						setHeader(&response, OP_NICK_UNKNOWN, NULL);
+						setData(&response, NULL, NULL, 0);
+					}
+					break;
+				case USRLIST_OP:
+					pthread_mutex_lock(&connected_mutex);
+					responseConnectedList(&response);
+					pthread_mutex_unlock(&connected_mutex);
 					break;
 				default:
 					break;
 			}
+			if (sendRequest(localfd, &response) < 0) {
+				perror("inviando un messaggio");
+			}
+			//free(response.data.buffer);
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero
 		#ifdef DEBUG
@@ -319,6 +391,7 @@ int main(int argc, char *argv[]) {
 	// Parsing del file di configurazione
 	// TODO: cercare una libreria che lo faccia per me
 	int ThreadsInPool = 8;
+	int MaxHistMsgs = 16;
 	char* UnixPath = "/tmp/chatty_socket";
 
 	fclose(conf_file);
@@ -356,12 +429,13 @@ int main(int argc, char *argv[]) {
 	// Crea le strutture condivise
 	int listener_params[2];
 	queue = create_fifo();
-	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N);
+	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
 	listener_params[0] = createSocket(UnixPath);
 	pthread_t pool[ThreadsInPool];
 	freefd = malloc(ThreadsInPool * sizeof(int));
 	freefd_ack = calloc(ThreadsInPool, sizeof(char));
 	// freefd_lock = malloc(ThreadsInPool * sizeof(pthread_mutex_t));
+	pthread_mutex_init(&connected_mutex, NULL);
 	// Crea i vari thread
 	listener_params[1] = ThreadsInPool;
 	pthread_create(&listener, NULL, &listener_thread, (void*)listener_params);
@@ -383,6 +457,9 @@ int main(int argc, char *argv[]) {
 	free(freefd_ack);
 	// free(freefd_lock);
 	ts_hash_destroy(nickname_htable);
+	pthread_mutex_lock(&connected_mutex);
+	pthread_mutex_unlock(&connected_mutex);
+	pthread_mutex_destroy(&connected_mutex);
 
 	return 0;
 }

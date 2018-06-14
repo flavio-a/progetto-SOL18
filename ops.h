@@ -62,6 +62,7 @@ typedef enum {
     /*
      * aggiungere qui altri messaggi di ritorno che possono servire
      */
+    OP_FAKE_MSG     = 80, // usata internamente dal server per la history
 
     OP_END          = 100 // limite superiore agli id usati per le operazioni
 

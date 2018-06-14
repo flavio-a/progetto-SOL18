@@ -78,6 +78,7 @@ void clear_fifo(fifo_t* q) {
 		// implementazione non ottimale, la pop fa del lavoro inutile
 		pop(q);
 	error_handling_unlock(&(q->mutex));
+	pthread_mutex_destroy(&(q->mutex));
 }
 
 // Thread-safe pop

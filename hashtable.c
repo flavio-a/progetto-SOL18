@@ -7,137 +7,91 @@
 
 // ------------------ Funzioni interne ---------------
 
+// ============================= nickname_t ====================================
+nickname_t* create_nickname(int history_size) {
+	nickname_t* res = malloc(sizeof(nickname_t));
+	res->fd = 0;
+	res->first = 0;
+	res->hist_size = history_size;
+	res->history = malloc(history_size * sizeof(char*));
+	// questo segnala se l'ultimo messaggio è stato mai inizializzato o meno
+	res->history[history_size - 1].hdr.op = OP_FAKE_MSG;
+	pthread_mutex_init(&(res->mutex), NULL);
+	return res;
+}
 
+void free_nickname_t(nickname_t* val) {
+	error_handling_lock(&(ht->mutex));
+	// devo fare free di tutti gli elementi di res->history
+	free(val->history);
+	error_handling_unlock(&(ht->mutex));
+	pthread_mutex_destroy(&(val->mutex));
+	free(val);
+}
 
 // ------- Funzioni esportate --------------
 // Documentate in hashtable.h
 
-htable_t* hash_create(int nbuckets) {
+// ============================= nickname_t ====================================
+void add_to_history(nickname_t* nick, message_t msg) {
+	// aggiunta alla coda circolare: aumento l'indice di testa e sostituisco
+	nick->first = (nick->first) + 1 % nick->hist_size;
+	nick->history[nick->first] = msg;
+}
+
+bool search_file_history(nickname_t* nick, char* name) {
+	for (int i = nick->first; i >= 0; --i) {
+		if (nick->history[i].hdr.op == POSTFILE_OP
+			&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
+			return true;
+	}
+	if (nick->history[nick->hist_size - 1].hdr.op != OP_FAKE_MSG) {
+		for (int i = nick->hist_size - 1; i >= nick->first; --i) {
+			if (nick->history[i].hdr.op == POSTFILE_OP
+				&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
+				return true;
+		}
+	}
+	return false;
+}
+
+// ============================== htable_t =====================================
+
+htable_t* hash_create(int nbuckets, int history_size) {
 	htable_t* res = malloc(sizeof(htable_t));
-
 	res->htable = icl_hash_create(nbuckets, NULL, NULL);
-	res->reader_in = res->writer_in = res->reader_wait = res->writer_wait = 0;
-
+	res->history_size = history_size;
 	pthread_mutex_init(&(res->mutex), NULL);
-	pthread_cond_init(&(res->cond_reader), NULL);
-	pthread_cond_init(&(res->cond_writer), NULL);
 
 	return res;
 }
 
 int ts_hash_destroy(htable_t* ht) {
 	error_handling_lock(&(ht->mutex));
-	int res = icl_hash_destroy(ht->htable, &free, &free);
-	error_handling_unlock(&(ht->mutex));
+	int res = icl_hash_destroy(ht->htable, &free, &free_nickname_t);
 	if (res == 0)
 		free(ht);
+	error_handling_unlock(&(ht->mutex));
+	pthread_mutex_destroy(&(res->mutex));
 	return res;
 }
 
-// lettore
-bool ts_hash_find(htable_t* ht, char* key) {
-	// prologo dell'accesso in lettura
-	error_handling_lock(&(ht->mutex));
-	if (ht->writer_in == 0 && ht->writer_wait == 0) {
-		(ht->reader_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-	else {
- 		(ht->reader_wait)++;
-		while (ht->writer_in > 0)
-			pthread_cond_wait(&(ht->cond_reader), &(ht->mutex));
-		(ht->reader_wait)--;
-		(ht->reader_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-
-	// lettura
-	void* val = icl_hash_find(ht->htable, (void*)key);
-
-	// epilogo dell'accesso in lettura
-	error_handling_lock(&(ht->mutex));
-	(ht->reader_in)--;
-	if (ht->reader_in == 0) {
-		if (ht->writer_wait > 0 ) {
-			pthread_cond_signal(&(ht->cond_writer));
-		}
-		else {
-			// in teoria non serve mai a nente, messo per sicurezza
-			pthread_cond_broadcast(&(ht->cond_reader));
-		}
-	}
-	error_handling_unlock(&(ht->mutex));
-
-	return val != NULL;
+nickname_t* ts_hash_find(htable_t* ht, char* key) {
+	return (nickname_t*)icl_hash_find(ht->htable, (void*)key);
 }
 
-// scrittore
 bool ts_hash_insert(htable_t* ht, char* key) {
-	bool* val = malloc(sizeof(bool));
-	*val = true;
-
-	// prologo dell'accesso in lettura
+	nickname_t* val = create_nickname(ht->history_size);
 	error_handling_lock(&(ht->mutex));
-	if (ht->reader_in == 0 && ht->writer_in == 0 && ht->reader_wait == 0) {
-		(ht->writer_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-	else {
-	 	(ht->writer_wait)++;
-		while (ht->reader_in > 0 || ht->writer_in > 0)
-			pthread_cond_wait(&(ht->cond_writer), &(ht->mutex));
-		(ht->writer_wait)--;
-		(ht->writer_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-
-	// scrittura
 	void* res = icl_hash_insert(ht->htable, (void*)key, val);
-
-	// epilogo dell’accesso in scrittura
-	error_handling_lock(&(ht->mutex));
-	(ht->writer_in)--;
-	if (ht->reader_wait > 0) {
-		pthread_cond_broadcast(&(ht->cond_reader));
-	}
-	else {
-		pthread_cond_signal(&(ht->cond_writer));
-	}
 	error_handling_unlock(&(ht->mutex));
-
 	return res == NULL;
 }
 
 // scrittore
 bool ts_hash_remove(htable_t* ht, char* key) {
-	// prologo dell'accesso in scrittura
 	error_handling_lock(&(ht->mutex));
-	if (ht->reader_in == 0 && ht->writer_in == 0 && ht->reader_wait == 0) {
-		(ht->writer_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-	else {
-	 	(ht->writer_wait)++;
-		while (ht->reader_in > 0 || ht->writer_in > 0)
-			pthread_cond_wait(&(ht->cond_writer), &(ht->mutex));
-		(ht->writer_wait)--;
-		(ht->writer_in)++;
-		error_handling_unlock(&(ht->mutex));
-	}
-
-	// scrittura
-	int res = icl_hash_delete(ht->htable, (void*)key, &free, &free);
-
-	// epilogo dell’accesso in scrittura
-	error_handling_lock(&(ht->mutex));
-	(ht->writer_in)--;
-	if (ht->reader_wait > 0) {
-		pthread_cond_broadcast(&(ht->cond_reader));
-	}
-	else {
-		pthread_cond_signal(&(ht->cond_writer));
-	}
+	int res = icl_hash_delete(ht->htable, (void*)key, &free, &free_nickname_t);
 	error_handling_unlock(&(ht->mutex));
-
 	return res == 0;
 }

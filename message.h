@@ -79,6 +79,16 @@ typedef struct {
  * ed un puntatore ad un buffer, la cui lunghezza è indicata nell'header, che
  * contiene proprio i dati da inviare
  *
+ * I client inviano al server messaggi che hanno come op una di quelle permesse.
+ *
+ * Le risposte del server possono essere dei seguenti tipi:
+ * - Codice di errore, in quel caso contiene solo l'header
+ * - OP_OK, nessun dato (risposta di default)
+ * - OP_OK, lista degli utenti connessi: il buffer deve essere una stringa formata
+          dai nomi dei client connessi, facendo occupare ad ogni nome
+          MAX_NAME_LENGTH + 1 caratteri (non utilizzando quelli dopo \0)
+ * - OP_OK, lista dei messaggi: il buffer deve essere in qualche formato (TODOC)
+ *
  * @var message_t::hdr
  * header
  * @var message_t::data
