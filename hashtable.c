@@ -20,13 +20,13 @@ nickname_t* create_nickname(int history_size) {
 	return res;
 }
 
-void free_nickname_t(nickname_t* val) {
-	error_handling_lock(&(ht->mutex));
+void free_nickname_t(void* val) {
+	error_handling_lock(&(((nickname_t*)val)->mutex));
 	// devo fare free di tutti gli elementi di res->history
-	free(val->history);
-	error_handling_unlock(&(ht->mutex));
-	pthread_mutex_destroy(&(val->mutex));
-	free(val);
+	free(((nickname_t*)val)->history);
+	error_handling_unlock(&(((nickname_t*)val)->mutex));
+	pthread_mutex_destroy(&(((nickname_t*)val)->mutex));
+	free((nickname_t*)val);
 }
 
 // ------- Funzioni esportate --------------
@@ -60,7 +60,7 @@ bool search_file_history(nickname_t* nick, char* name) {
 htable_t* hash_create(int nbuckets, int history_size) {
 	htable_t* res = malloc(sizeof(htable_t));
 	res->htable = icl_hash_create(nbuckets, NULL, NULL);
-	res->history_size = history_size;
+	res->hist_size = history_size;
 	pthread_mutex_init(&(res->mutex), NULL);
 
 	return res;
@@ -72,7 +72,7 @@ int ts_hash_destroy(htable_t* ht) {
 	if (res == 0)
 		free(ht);
 	error_handling_unlock(&(ht->mutex));
-	pthread_mutex_destroy(&(res->mutex));
+	pthread_mutex_destroy(&(ht->mutex));
 	return res;
 }
 
@@ -81,7 +81,7 @@ nickname_t* ts_hash_find(htable_t* ht, char* key) {
 }
 
 bool ts_hash_insert(htable_t* ht, char* key) {
-	nickname_t* val = create_nickname(ht->history_size);
+	nickname_t* val = create_nickname(ht->hist_size);
 	error_handling_lock(&(ht->mutex));
 	void* res = icl_hash_insert(ht->htable, (void*)key, val);
 	error_handling_unlock(&(ht->mutex));

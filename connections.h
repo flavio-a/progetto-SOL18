@@ -127,8 +127,6 @@ int readMsg(long fd, message_t *msg);
  * @function sendRequest
  * @brief Invia un messaggio di richiesta al server
  *
- * Se il messaggio non ha un body (msg->data == NULL) invia solo l'header
- *
  * @param fd     descrittore della connessione
  * @param msg    puntatore al messaggio da inviare
  *

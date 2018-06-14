@@ -50,7 +50,6 @@ fifo_t queue;
  */
 int* freefd;
 char* freefd_ack;
-// pthread_mutex_t* freefd_lock;
 
 /**
  * Flag per segnalare al listener che ha ricevuto un SIGUSR2
@@ -116,10 +115,11 @@ void signal_handler_thread() {
 				fprintf(stderr, "Ricevuto segnale SIGUSR1\n");
 			#endif
 			// temporaneo, per il debug
-			int i, j, p = 0;
+			int i;
+			icl_entry_t* j;
 			char* key;
 			nickname_t* val;
-			icl_hash_foreach(nickname_htable, i, j, (void*)key, (void*)val) {
+			icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
 				if (val->fd != 0) {
 					fprintf(stderr, "Connesso %s\n", key);
 				}
@@ -153,18 +153,19 @@ static void siguser2_handler(int signum) {
 void responseConnectedList(message_t* msg) {
 	char* conn_list = malloc(num_connected * sizeof(char) * (MAX_NAME_LENGTH + 1));
 	// TODO: implementazione più ragionevole di "scorri tutta l'hashtable"
-	int i, j, p = 0;
+	int i, p = 0;
+	icl_entry_t* j;
 	char* key;
 	nickname_t* val;
-	icl_hash_foreach(nickname_htable, i, j, (void*)key, (void*)val) {
+	icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
 		if (val->fd != 0) {
-			strncpy(conn_list[p * (MAX_NAME_LENGTH + 1)], key, MAX_NAME_LENGTH + 1);
+			strncpy(conn_list + p * (MAX_NAME_LENGTH + 1), key, MAX_NAME_LENGTH + 1);
 			++p;
 		}
 	}
 	assert(p == num_connected);
-	setHeader(&response, OP_OK, NULL);
-	setData(&response, NULL, conn_list, num_connected);
+	setHeader(&(msg->hdr), OP_OK, "");
+	setData(&(msg->data), "", conn_list, num_connected);
 }
 
 /**
@@ -235,9 +236,9 @@ void* listener_thread(void* arg) {
 				perror("select del listener");
 		}
 		else { // select terminata correttamente
-			#ifdef DEBUG
-				fprintf(stderr, "Ricevuto qualcosa dalla select\n");
-			#endif
+			// #ifdef DEBUG
+			// 	fprintf(stderr, "Ricevuto qualcosa dalla select\n");
+			// #endif
 			for (int fd = 0; fd <= fdnum; ++fd) {
 				if (FD_ISSET(fd, &rset)) {
 					if (fd == ssfd) {
@@ -253,7 +254,7 @@ void* listener_thread(void* arg) {
 					else {
 						// richiesta su una connessione già aperta
 						#ifdef DEBUG
-							fprintf(stderr, "Richiesta su una connessione già aperta\n");
+							fprintf(stderr, "Richiesta su %d\n", fd);
 						#endif
 						ts_push(&queue, fd);
 						FD_CLR(fd, &set);
@@ -286,10 +287,6 @@ void* worker_thread(void* arg) {
 			perror("leggendo un messaggio");
 		}
 		else {
-			// Fai cose a seconda del messaggio
-			#ifdef DEBUG
-				fprintf(stderr, "Ricevuto un qualche tipo di messaggio, ci faccio le cose\n");
-			#endif
 			// Messaggio da inviare in risposta al client
 			message_t response;
 			// Quando scrive qualcosa deve sempre controllare se il descrittore
@@ -297,12 +294,15 @@ void* worker_thread(void* arg) {
 			// i nickname connessi di conseguenza
 			switch (msg.hdr.op) {
 				case REGISTER_OP:
+					#ifdef DEBUG
+						fprintf(stderr, "Ricevuta REGISTER_OP\n");
+					#endif
 					if (ts_hash_insert(nickname_htable, msg.hdr.sender)) {
 						#ifdef DEBUG
-							fprintf(stderr, "Richiesta di registrare un nickname già esistente\n");
+							fprintf(stderr, "Nickname già esistente!\n");
 						#endif
-						setHeader(&response, OP_NICK_ALREADY, NULL);
-						setData(&response, NULL, NULL, 0);
+						setHeader(&(response.hdr), OP_NICK_ALREADY, "");
+						setData(&(response.data), "", NULL, 0);
 					}
 					else {
 						pthread_mutex_lock(&connected_mutex);
@@ -311,6 +311,9 @@ void* worker_thread(void* arg) {
 					}
 					break;
 				case CONNECT_OP:
+					#ifdef DEBUG
+						fprintf(stderr, "Ricevuta CONNECT_OP\n");
+					#endif
 					if (ts_hash_find(nickname_htable, msg.hdr.sender) != NULL) {
 						pthread_mutex_lock(&connected_mutex);
 						++num_connected;
@@ -321,11 +324,14 @@ void* worker_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "Richiesta di connessione di un nickname inesistente\n");
 						#endif
-						setHeader(&response, OP_NICK_UNKNOWN, NULL);
-						setData(&response, NULL, NULL, 0);
+						setHeader(&(response.hdr), OP_NICK_UNKNOWN, "");
+						setData(&(response.data), "", NULL, 0);
 					}
 					break;
 				case USRLIST_OP:
+					#ifdef DEBUG
+						fprintf(stderr, "Ricevuta USRLIST_OP\n");
+					#endif
 					pthread_mutex_lock(&connected_mutex);
 					responseConnectedList(&response);
 					pthread_mutex_unlock(&connected_mutex);
@@ -339,19 +345,12 @@ void* worker_thread(void* arg) {
 			//free(response.data.buffer);
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero
-		#ifdef DEBUG
-			fprintf(stderr, "Finito di fare le cose, inizio comunicazione con il listener\n");
-		#endif
-		// pthread_mutex_lock(freefd_lock + workerNumber);
 		while(freefd_ack[workerNumber] == 1) {
-			// pthread_mutex_unlock(freefd_lock + workerNumber);
 			pthread_kill(listener, SIGUSR2);
 			sched_yield();
-			// pthread_mutex_lock(freefd_lock + workerNumber);
 		}
 		freefd[workerNumber] = localfd;
 		freefd_ack[workerNumber] = 1;
-		// pthread_mutex_unlock(freefd_lock + workerNumber);
 		pthread_kill(listener, SIGUSR2);
 		#ifdef DEBUG
 			fprintf(stderr, "Restituito l'fd al listener\n");
@@ -434,7 +433,6 @@ int main(int argc, char *argv[]) {
 	pthread_t pool[ThreadsInPool];
 	freefd = malloc(ThreadsInPool * sizeof(int));
 	freefd_ack = calloc(ThreadsInPool, sizeof(char));
-	// freefd_lock = malloc(ThreadsInPool * sizeof(pthread_mutex_t));
 	pthread_mutex_init(&connected_mutex, NULL);
 	// Crea i vari thread
 	listener_params[1] = ThreadsInPool;
@@ -455,7 +453,6 @@ int main(int argc, char *argv[]) {
 	clear_fifo(&queue);
 	free(freefd);
 	free(freefd_ack);
-	// free(freefd_lock);
 	ts_hash_destroy(nickname_htable);
 	pthread_mutex_lock(&connected_mutex);
 	pthread_mutex_unlock(&connected_mutex);

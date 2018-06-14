@@ -45,7 +45,15 @@ icl_hash_destroy(icl_hash_t *, void (*)(void*), void (*)(void*)),
 
 int icl_hash_delete( icl_hash_t *ht, void* key, void (*free_key)(void*), void (*free_data)(void*) );
 
-
+/**
+ * @brief Itera su tutta l'hashtable
+ *
+ * @param ht (icl_hash_t *) L'hashtable
+ * @param tmpint (int) indice di iterazione
+ * @param tmpent (icl_entry_t *) puntatore su cui itera
+ * @param kp (void*) puntatore alla chiave
+ * @param dp (void*) puntatore al valore
+ */
 #define icl_hash_foreach(ht, tmpint, tmpent, kp, dp)    \
     for (tmpint=0;tmpint<ht->nbuckets; tmpint++)        \
         for (tmpent=ht->buckets[tmpint];                                \
