@@ -259,12 +259,13 @@ void* listener_thread(void* arg) {
 
 /**
  * @brief Modifica le strutture dati necessarie alla disconnessione di un client
- * dal fd passato. Se il fd passato non ha associato nessun client, non viene
- * fatta nessuna azione.
+ * dal fd passato. Se il fd passato non ha associato nessun client, viene
+ * solamente chiuso il fd.
  *
  * @param fd
  */
 void disconnectClient(int fd) {
+	close(fd);
 	if (fd_to_nickname[fd] == NULL)
 		return;
 	#ifdef DEBUG
@@ -276,7 +277,6 @@ void disconnectClient(int fd) {
 	error_handling_unlock(&(client->mutex));
 	error_handling_lock(&connected_mutex);
 	--num_connected;
-	close(fd);
 	free(fd_to_nickname[fd]);
 	fd_to_nickname[fd] = NULL;
 	error_handling_unlock(&connected_mutex);
@@ -347,6 +347,8 @@ void* worker_thread(void* arg) {
 				#ifdef DEBUG
 					fprintf(stderr, "%d: un client è crashato (fd %d)\n", workerNumber, localfd);
 				#endif
+				disconnectClient(localfd);
+				fdclose = true;
 			}
 			else {
 				perror("leggendo un messaggio");

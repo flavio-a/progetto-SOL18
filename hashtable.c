@@ -13,7 +13,7 @@ nickname_t* create_nickname(int history_size) {
 	res->fd = 0;
 	res->first = 0;
 	res->hist_size = history_size;
-	res->history = malloc(history_size * sizeof(char*));
+	res->history = malloc(history_size * sizeof(message_t));
 	// questo segnala se l'ultimo messaggio è stato mai inizializzato o meno
 	res->history[history_size - 1].hdr.op = OP_FAKE_MSG;
 	pthread_mutex_init(&(res->mutex), NULL);
@@ -22,10 +22,19 @@ nickname_t* create_nickname(int history_size) {
 
 void free_nickname_t(void* val) {
 	error_handling_lock(&(((nickname_t*)val)->mutex));
-	// devo fare free di tutti gli elementi di res->history
-	free(((nickname_t*)val)->history);
-	error_handling_unlock(&(((nickname_t*)val)->mutex));
-	pthread_mutex_destroy(&(((nickname_t*)val)->mutex));
+	// Free del contenuto dei messaggi
+	nickname_t tmp = *(nickname_t*)val;
+	for (int i = tmp.first; i >= 0; --i) {
+		free(tmp.history[i].data.buf);
+	}
+	if (tmp.history[tmp.hist_size - 1].hdr.op != OP_FAKE_MSG) {
+		for (int i = tmp.hist_size - 1; i >= tmp.first; --i) {
+			free(tmp.history[i].data.buf);
+		}
+	}
+	free(tmp.history);
+	error_handling_unlock(&(tmp.mutex));
+	pthread_mutex_destroy(&(tmp.mutex));
 	free((nickname_t*)val);
 }
 

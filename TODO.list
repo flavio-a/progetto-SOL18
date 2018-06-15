@@ -1,8 +1,4 @@
 - cercare una libreria per parsare il file di configurazione
-- deallocare tutte le mutex allocate in giro
-- scrivere una vera free_nickname_t
-- scrivere una responseConnectedList almeno vagamente sensata
-- modificare l'hashtable per contenere una struttura dati più complessa (con
-  fd = 0 se nick disconnesso, altrimenti fd = quello su cui è connesso, e la
-  history)
+- ricontrollare tutti i memory leak rimasti in giro. In particolare:
+  - deallocare tutte le mutex allocate in giro
 - implementare la gestione delle varie operazioni
