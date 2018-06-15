@@ -80,12 +80,14 @@ nickname_t* ts_hash_find(htable_t* ht, char* key) {
 	return (nickname_t*)icl_hash_find(ht->htable, (void*)key);
 }
 
-bool ts_hash_insert(htable_t* ht, char* key) {
+nickname_t* ts_hash_insert(htable_t* ht, char* key) {
 	nickname_t* val = create_nickname(ht->hist_size);
+	char* new_key = malloc(strlen(key) * sizeof(char*));
+	strncpy(new_key, key, strlen(key));
 	error_handling_lock(&(ht->mutex));
-	void* res = icl_hash_insert(ht->htable, (void*)key, val);
+	icl_entry_t* res = icl_hash_insert(ht->htable, new_key, val);
 	error_handling_unlock(&(ht->mutex));
-	return res == NULL;
+	return res == NULL ? NULL : res->data;
 }
 
 // scrittore

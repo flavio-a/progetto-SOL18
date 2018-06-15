@@ -35,6 +35,9 @@ Se riceve SIGINT, SIGTERM o SIGQUIT ritorna al main (deve anche mandare dei
 segnali di interruzione agli altri thread?), che si occupa di liberare la
 memoria allocata.
 
+Oltre all'hashtable dei nickname c'è una mappa fd->nickname, utilizzata per
+creare l'elenco dei nickname connessi e per gestire le disconnessioni.
+
 La politica lettori-scrittori è gestita così:
 * lettore:
     per entrare:

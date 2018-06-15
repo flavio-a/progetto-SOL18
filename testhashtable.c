@@ -8,23 +8,27 @@
 
 #include "hashtable.h"
 
-#define ITEMS 100
-#define MAX_KEYS_LENGTH 3
+#define ITEMS 1000
+#define MAX_KEYS_LENGTH 4
 #define HIST_SIZE 1
+#define TEST_KEY "cusu"
 
 int main(int argc, char** argv) {
 	htable_t* ht = hash_create(2 * ITEMS, HIST_SIZE);
 
-	// prime prove
-	char* key1 = malloc(5 * sizeof(char));
-	strncpy(key1, "cusu", 5);
-	ts_hash_insert(ht, key1);
-	nickname_t* cusu_item = ts_hash_find(ht, key1);
-	assert(cusu_item != NULL);
-	fprintf(stderr, "fd: %d, first: %d, hist_size: %d\n", cusu_item->fd, cusu_item->first, cusu_item->hist_size);
-	assert(cusu_item->fd == 0 && cusu_item->first == 0 && cusu_item->hist_size == HIST_SIZE);
-	ts_hash_remove(ht, key1);
-	assert(ts_hash_find(ht, key1) == NULL);
+	// inserimento
+	nickname_t* insert_item = ts_hash_insert(ht, TEST_KEY);
+	// ricerca
+	nickname_t* find_item = ts_hash_find(ht, TEST_KEY);
+	assert(insert_item == find_item);
+	assert(find_item != NULL);
+	fprintf(stderr, "fd: %d, first: %d, hist_size: %d\n", find_item->fd, find_item->first, find_item->hist_size);
+	assert(find_item->fd == 0 && find_item->first == 0 && find_item->hist_size == HIST_SIZE);
+	// inserimento di chiave già esistente
+	assert(ts_hash_insert(ht, TEST_KEY) == NULL);
+	// rimozione
+	ts_hash_remove(ht, TEST_KEY);
+	assert(ts_hash_find(ht, TEST_KEY) == NULL);
 
 	printf("Superati test di base\n");
 

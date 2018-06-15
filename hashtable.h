@@ -114,9 +114,9 @@ nickname_t* ts_hash_find(htable_t* ht, char* key);
  * Inserisce la chiave senza nessun dato associato
  * @param ht L'hashtable in cui inserire la chiave
  * @param key La chiave da inserire
- * @return true se la chiave era già presente, false altrimenti
+ * @return Un puntatore al nuovo elemento. Se l'elemento era già presente, NULL
  */
-bool ts_hash_insert(htable_t* ht, char* key);
+nickname_t* ts_hash_insert(htable_t* ht, char* key);
 
 /**
  * @brief Thread-safe remove
