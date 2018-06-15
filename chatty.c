@@ -258,9 +258,15 @@ void* listener_thread(void* arg) {
 
 
 /**
- * @brief TODO
+ * @brief Modifica le strutture dati necessarie alla disconnessione di un client
+ * dal fd passato. Se il fd passato non ha associato nessun client, non viene
+ * fatta nessuna azione.
+ *
+ * @param fd
  */
 void disconnectClient(int fd) {
+	if (fd_to_nickname[fd] == NULL)
+		return;
 	#ifdef DEBUG
 		fprintf(stderr, "Un client si è disconnesso (fd %d, nick \"%s\") :c\n", fd, fd_to_nickname[fd]);
 	#endif
@@ -337,7 +343,14 @@ void* worker_thread(void* arg) {
 		// Le comunicazioni iniziano sempre con un messaggio
 		int readRes = readMsg(localfd, &msg);
 		if (readRes < 0) {
-			perror("leggendo un messaggio");
+			if (errno == ECONNRESET) {
+				#ifdef DEBUG
+					fprintf(stderr, "%d: un client è crashato (fd %d)\n", workerNumber, localfd);
+				#endif
+			}
+			else {
+				perror("leggendo un messaggio");
+			}
 		}
 		else if (readRes == 0) {
 			// Client disconnesso
