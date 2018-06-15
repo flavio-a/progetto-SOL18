@@ -90,8 +90,7 @@ static int readByte(long fd, void* buf, size_t byte) {
 		if (byte_read < 0) {
 			if (errno == EINTR)
 				continue; //continua il ciclo
-			// vuol dire che il socket ha avuto dei problemi
-			errno = EPIPE;
+			// vuol dire che il socket ha avuto dei problemi, già settato errno
 			return -1;
 		}
 		if (byte_read == 0)
@@ -176,7 +175,7 @@ static int sendByte(long fd, void* buf, size_t byte) {
 }
 
 
-// Invia un messaggio di rischiesta al server
+// Invia un messaggio di rischiesta
 int sendRequest(long fd, message_t *msg) {
 	// Scrive l'header
 	int result = sendByte(fd, &(msg->hdr), sizeof(message_hdr_t));
@@ -185,7 +184,7 @@ int sendRequest(long fd, message_t *msg) {
 	return sendData(fd, &(msg->data));
 }
 
-// Invia il body di un messaggio al server
+// Invia il body di un messaggio
 int sendData(long fd, message_data_t *data) {
 	// Scrive l'header dei dati
 	int result = sendByte(fd, &(data->hdr), sizeof(message_data_hdr_t));

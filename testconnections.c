@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/socket.h>
 
 #include "connections.h"
@@ -10,8 +11,8 @@
 #define TEST_OP GETPREVMSGS_OP
 #define TEST_SENDER "cusu"
 #define TEST_RECEIVER "mano"
-#define TEST_LEN 120
-#define TEST_CONTENT "abcd"
+#define TEST_LEN 150
+#define TEST_CONTENT "abcd1abcd2abcd3abcd4abcd5abcd6abcd7abcd8abcd9abcd0abcd1abcd2abcd3abcd4abcd5abcd6abcd7abcd8abcd9abcd0abcd1abcd2abcd3abcd4abcd5abcd6abcd7abcd8abcd9abcd0"
 
 #define SYSCALL(r, c, e) if ((r = c) < 0) { perror(e); exit(errno); }
 
@@ -66,6 +67,20 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Errore nell'invio dei data: diversi\n");
 			myquit();
 		}
+		// verifica che sul socket non ci sia più niente da leggere
+		// Ignora SIGPIPE
+		struct sigaction s;
+		memset(&s, 0, sizeof(s));
+		s.sa_handler = SIG_IGN;
+		if (sigaction(SIGPIPE, &s, NULL) < 0) {
+			perror("sigaction");
+			return -1;
+		}
+		char buf[1];
+		if (read(asfd, buf, 1) != 0) {
+			fprintf(stderr, "Errore: socket non vuoto dopo la lettura del messaggio\n");
+			myquit();
+		}
 	}
 	else {
 		// lato client
@@ -74,8 +89,8 @@ int main(int argc, char** argv) {
 		sendData(csfd, &message.data);
 	}
 
-	free(buff);
 	unlink(SOCKET_PATH);
+	free(buff);
 
 	return 0;
 }

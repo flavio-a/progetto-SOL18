@@ -122,6 +122,12 @@ void setHeader(message_hdr_t *hdr, op_t op, char *sender);
  */
 void setData(message_data_t *data, char *rcv, const char *buf, unsigned int len);
 
-
+#ifdef DEBUG
+#include <stdio.h>
+/**
+ * @brief Stampa un messaggio. Funzione esistente solo in DEBUG
+ */
+void printMsg(message_t msg);
+#endif
 
 #endif /* MESSAGE_H_ */

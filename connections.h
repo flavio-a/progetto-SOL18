@@ -110,7 +110,7 @@ int readData(long fd, message_data_t *data);
  *
  * Questa funzione esegue in successione la lettura di header e body senza
  * controllare se qualcun altro ha già letto parte dei dati in mezzo. Prima
- * di chiamarla, assicurarsi che nessun altro thread sia in attesa su fd
+ * di chiamarla, assicurarsi che nessun altro thread sia in attesa su fd.
  *
  * @param fd     descrittore della connessione
  * @param msg   puntatore su cui viene scritto il messaggio
@@ -125,7 +125,11 @@ int readMsg(long fd, message_t *msg);
 
 /**
  * @function sendRequest
- * @brief Invia un messaggio di richiesta al server
+ * @brief Invia un messaggio di richiesta al server.
+ *
+ * Viene garantito che inviando un messaggio in questo modo sia possibile
+ * leggerlo correttamente sia con una chiamata readMsg che con le due chiamate
+ * consecutive di readHeader e readData.
  *
  * @param fd     descrittore della connessione
  * @param msg    puntatore al messaggio da inviare

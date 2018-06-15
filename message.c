@@ -26,3 +26,13 @@ void setData(message_data_t *data, char *rcv, const char *buf, unsigned int len)
     data->hdr.len  = len;
     data->buf      = (char *)buf;
 }
+
+#ifdef DEBUG
+
+void printMsg(message_t msg) {
+    fprintf(stderr, "==== Messaggio ====\n");
+    fprintf(stderr, "Hdr:\n op: %d\n sender: \"%s\"\n", msg.hdr.op, msg.hdr.sender);
+    fprintf(stderr, "Data hdr:\n len: %d\n receiver: \"%s\"\n", msg.data.hdr.len, msg.data.hdr.receiver);
+}
+
+#endif
