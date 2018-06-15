@@ -125,7 +125,7 @@ int readMsg(long fd, message_t *msg);
 
 /**
  * @function sendRequest
- * @brief Invia un messaggio di richiesta al server.
+ * @brief Invia un messaggio di richiesta.
  *
  * Viene garantito che inviando un messaggio in questo modo sia possibile
  * leggerlo correttamente sia con una chiamata readMsg che con le due chiamate
@@ -139,8 +139,18 @@ int readMsg(long fd, message_t *msg);
 int sendRequest(long fd, message_t *msg);
 
 /**
+ * @brief Invia l'header di un messaggio.
+ *
+ * @param fd     descrittore della connessione
+ * @param hdr    puntatore all'header del messaggio da inviare
+ *
+ * @return <=0 se c'e' stato un errore
+ */
+int sendHeader(long fd, message_hdr_t *hdr);
+
+/**
  * @function sendData
- * @brief Invia il body del messaggio al server
+ * @brief Invia il body di un messaggio.
  *
  * @param fd     descrittore della connessione
  * @param data    puntatore al body del messaggio da inviare

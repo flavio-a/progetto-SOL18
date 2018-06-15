@@ -207,9 +207,9 @@ void* listener_thread(void* arg) {
 						// arrivato da un worker è stato accettato da listener,
 						// quindi ha già modificato fd_num
 						freefd_ack[i] = 0;
-						#ifdef DEBUG
-							fprintf(stderr, "Ricevuto un fd da un worker\n");
-						#endif
+						// #ifdef DEBUG
+						// 	fprintf(stderr, "Ricevuto un fd da un worker\n");
+						// #endif
 					}
 					// pthread_mutex_unlock(freefd_lock + i);
 				}
@@ -321,6 +321,41 @@ void responseConnectedList(message_t* msg) {
 	setData(&(msg->data), "", conn_list, num_connected * (MAX_NAME_LENGTH + 1));
 }
 
+bool sendMsgResponse(int fd, message_t* res) {
+	#ifdef DEBUG
+		fprintf(stderr, "Invio risposta al client\n");
+	#endif
+	if (sendRequest(fd, res) < 0) {
+		if (errno == EPIPE) {
+			// Client disconnesso
+			disconnectClient(fd);
+			return true;
+		}
+		else {
+			perror("inviando un messaggio");
+		}
+	}
+	free(res->data.buf);
+	return false;
+}
+
+bool sendHdrResponse(int fd, message_hdr_t* res) {
+	#ifdef DEBUG
+		fprintf(stderr, "Invio risposta al client\n");
+	#endif
+	if (sendHeader(fd, res) < 0) {
+		if (errno == EPIPE) {
+			// Client disconnesso
+			disconnectClient(fd);
+			return true;
+		}
+		else {
+			perror("inviando un messaggio");
+		}
+	}
+	return false;
+}
+
 /**
  * @brief main di un thread worker, che esegue una operazione alla volta
  *
@@ -376,7 +411,7 @@ void* worker_thread(void* arg) {
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
 						setHeader(&(response.hdr), OP_NICK_ALREADY, "");
-						setData(&(response.data), "", NULL, 0);
+						fdclose = sendHdrResponse(localfd, &response.hdr);
 					}
 					else {
 						#ifdef DEBUG
@@ -386,6 +421,7 @@ void* worker_thread(void* arg) {
 						connectClient(msg.hdr.sender, localfd, nick);
 						responseConnectedList(&response);
 						pthread_mutex_unlock(&connected_mutex);
+						fdclose = sendMsgResponse(localfd, &response);
 					}
 					break;
 				case CONNECT_OP:
@@ -394,16 +430,21 @@ void* worker_thread(void* arg) {
 					#endif
 					if ((nick = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
 						pthread_mutex_lock(&connected_mutex);
+						// TODO: gestire se il nickname è già connesso
 						connectClient(msg.hdr.sender, localfd, nick);
+						#ifdef DEBUG
+							fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
+						#endif
 						responseConnectedList(&response);
 						pthread_mutex_unlock(&connected_mutex);
+						fdclose = sendMsgResponse(localfd, &response);
 					}
 					else {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
 						setHeader(&(response.hdr), OP_NICK_UNKNOWN, "");
-						setData(&(response.data), "", NULL, 0);
+						fdclose = sendHdrResponse(localfd, &response.hdr);
 					}
 					break;
 				case USRLIST_OP:
@@ -413,25 +454,23 @@ void* worker_thread(void* arg) {
 					pthread_mutex_lock(&connected_mutex);
 					responseConnectedList(&response);
 					pthread_mutex_unlock(&connected_mutex);
+					fdclose = sendMsgResponse(localfd, &response);
+					break;
+				case POSTTXT_OP:
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta POSTTXT_OP\n", workerNumber);
+					#endif
+					msg.hdr.op = TXT_MESSAGE;
+					nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+					add_to_history(receiver, msg);
+					if (receiver->fd > 0) {
+						sendRequest(receiver->fd, &msg);
+					}
+					setHeader(&(response.hdr), OP_OK, "");
+					fdclose = sendHdrResponse(localfd, &response.hdr);
 					break;
 				default:
 					break;
-			}
-			#ifdef DEBUG
-				fprintf(stderr, "%d: Invio risposta al client\n", workerNumber);
-			#endif
-			if (sendRequest(localfd, &response) < 0) {
-				if (errno == EPIPE) {
-					// Client disconnesso
-					disconnectClient(localfd);
-					fdclose = true;
-				}
-				else {
-					perror("inviando un messaggio");
-				}
-			}
-			if (response.data.buf != NULL) {
-				free(response.data.buf);
 			}
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero

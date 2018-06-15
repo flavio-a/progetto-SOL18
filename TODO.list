@@ -1,4 +1,12 @@
 - cercare una libreria per parsare il file di configurazione
+- gestire CONNECT_OP se un client è già connesso
 - ricontrollare tutti i memory leak rimasti in giro. In particolare:
   - deallocare tutte le mutex allocate in giro
-- implementare la gestione delle varie operazioni
+- implementare la gestione delle varie operazioni:
+  - POSTTXT_OP
+  - POSTTXTALL_OP
+  - POSTFILE_OP
+  - GETFILE_OP
+  - GETPREVMSGS_OP
+  - UNREGISTER_OP
+  - DISCONNECT_OP

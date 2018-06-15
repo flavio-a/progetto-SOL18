@@ -104,7 +104,7 @@ static int readByte(long fd, void* buf, size_t byte) {
 
 // Legge l'header del messaggio
 int readHeader(long fd, message_hdr_t *hdr) {
-	#if defined(MAKE_VALGRIND_HAPPY)
+	#ifdef MAKE_VALGRIND_HAPPY
 	    memset(hdr, 0, sizeof(message_hdr_t));
 	#endif
 	return readByte(fd, hdr, sizeof(message_hdr_t));
@@ -113,7 +113,7 @@ int readHeader(long fd, message_hdr_t *hdr) {
 
 // Legge il body del messaggio
 int readData(long fd, message_data_t *data) {
-	#if defined(MAKE_VALGRIND_HAPPY)
+	#ifdef MAKE_VALGRIND_HAPPY
 	    memset(data, 0, sizeof(message_data_t));
 	#endif
 	// Legge l'header dei dati
@@ -175,21 +175,23 @@ static int sendByte(long fd, void* buf, size_t byte) {
 }
 
 
-// Invia un messaggio di rischiesta
 int sendRequest(long fd, message_t *msg) {
 	// Scrive l'header
-	int result = sendByte(fd, &(msg->hdr), sizeof(message_hdr_t));
+	int result = sendHeader(fd, &(msg->hdr));
 	if (result <= 0)
-		return result;  //errno già impostato da readByte
+		return result;  //errno già impostato da sendHeader
 	return sendData(fd, &(msg->data));
 }
 
-// Invia il body di un messaggio
+int sendHeader(long fd, message_hdr_t *hdr) {
+	return sendByte(fd, hdr, sizeof(message_hdr_t));
+}
+
 int sendData(long fd, message_data_t *data) {
 	// Scrive l'header dei dati
 	int result = sendByte(fd, &(data->hdr), sizeof(message_data_hdr_t));
 	if (result <= 0)
-		return result; //errno già impostato da readByte
+		return result; //errno già impostato da sendByte
 
 	// Scriver i dati veri e propri
 	return sendByte(fd, data->buf, data->hdr.len);

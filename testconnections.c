@@ -49,6 +49,8 @@ int main(int argc, char** argv) {
 		int ssfd = createSocket(SOCKET_PATH);
 		int asfd;
 		SYSCALL(asfd, accept(ssfd, NULL, 0), "Accepting connection");
+
+		// prova di lettura con readMsg
 		message_t reqMsg;
 		readMsg(asfd, &reqMsg);
 		// confronta il messaggio ricevuto con quello in memoria
@@ -61,12 +63,34 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Errore nel messaggio: data diversi\n");
 			myquit();
 		}
+
+		// prova di lettura con readHeader
+		message_hdr_t reqHdr;
+		readHeader(asfd, &reqHdr);
+		if (reqMsg.hdr.op != message.hdr.op
+			|| strncmp(reqMsg.hdr.sender, message.hdr.sender, strlen(message.hdr.sender)) != 0) {
+			fprintf(stderr, "Errore nel messaggio: header diversi\n");
+			myquit();
+		}
+
+		// prova di lettura con readData
 		message_data_t reqData;
 		readData(asfd, &reqData);
 		if (!equalData(reqData, message.data)) {
 			fprintf(stderr, "Errore nell'invio dei data: diversi\n");
 			myquit();
 		}
+
+		// prova di lettura di sendMsg con readHeader e readData successivi
+		readHeader(asfd, &reqHdr);
+		readData(asfd, &reqData);
+		if (reqMsg.hdr.op != message.hdr.op
+			|| strncmp(reqMsg.hdr.sender, message.hdr.sender, strlen(message.hdr.sender)) != 0
+			|| !equalData(reqData, message.data)) {
+			fprintf(stderr, "Errore nel messaggio: header diversi\n");
+			myquit();
+		}
+
 		// verifica che sul socket non ci sia più niente da leggere
 		// Ignora SIGPIPE
 		struct sigaction s;
@@ -86,7 +110,9 @@ int main(int argc, char** argv) {
 		// lato client
 		int csfd = openConnection(SOCKET_PATH, 10, 1);
 		sendRequest(csfd, &message);
+		sendHeader(csfd, &message.hdr);
 		sendData(csfd, &message.data);
+		sendRequest(csfd, &message);
 	}
 
 	unlink(SOCKET_PATH);

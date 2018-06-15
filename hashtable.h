@@ -62,8 +62,8 @@ bool search_file_history(nickname_t* nick, char* name);
  * @brief Hashtable condivisa che contiene l'insieme dei nickname registrati
  *
  * Questa hashtable usa come chiavi i nickname: se un nickname si trova
- * nell'hashtable allora è registrato. Il valore associato ad ogni chiave è una
- * struttura dato contenente tutte le informazioni associate ad un nickname.
+ * nell'hashtable allora è registrato. Il valore associato ad ogni chiave è un
+ * nickname_t, contenente tutte le informazioni associate ad un nickname.
  *
  * L'hashtable gestisce la concorrenza solo di rimozioni e inserimenti. Le
  * modifiche ai singoli elementi devono essere sincronizzate separatamente.
