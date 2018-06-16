@@ -452,13 +452,13 @@ void* worker_thread(void* arg) {
 		else {
 			// Messaggio da inviare in risposta al client
 			message_t response;
-			nickname_t* nick;
+			nickname_t* sender;
 			switch (msg.hdr.op) {
 				case REGISTER_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta REGISTER_OP\n", workerNumber);
 					#endif
-					if ((nick = ts_hash_insert(nickname_htable, msg.hdr.sender)) == NULL) {
+					if ((sender = ts_hash_insert(nickname_htable, msg.hdr.sender)) == NULL) {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
@@ -472,7 +472,7 @@ void* worker_thread(void* arg) {
 							fprintf(stderr, "%d: Registrato il nickname \"%s\"\n", workerNumber, msg.hdr.sender);
 						#endif
 						pthread_mutex_lock(&connected_mutex);
-						connectClient(msg.hdr.sender, localfd, nick);
+						connectClient(msg.hdr.sender, localfd, sender);
 						responseConnectedList(&response);
 						pthread_mutex_unlock(&connected_mutex);
 						fdclose = sendMsgResponse(localfd, &response);
@@ -484,9 +484,9 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta CONNECT_OP\n", workerNumber);
 					#endif
-					if ((nick = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
-						error_handling_lock(&(nick->mutex));
-						if (nick->fd != 0) {
+					if ((sender = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
+						error_handling_lock(&(sender->mutex));
+						if (sender->fd != 0) {
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
@@ -496,9 +496,9 @@ void* worker_thread(void* arg) {
 							fdclose = true;
 						}
 						else {
-							error_handling_unlock(&(nick->mutex));
+							error_handling_unlock(&(sender->mutex));
 							pthread_mutex_lock(&connected_mutex);
-							connectClient(msg.hdr.sender, localfd, nick);
+							connectClient(msg.hdr.sender, localfd, sender);
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
 							#endif
@@ -551,24 +551,46 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, nick = ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						setHeader(&response.hdr, OP_OK, "");
-						error_handling_lock(&(nick->mutex));
-						size_t nmsgs = history_len(nick);
+						error_handling_lock(&(sender->mutex));
+						size_t nmsgs = history_len(sender);
 						setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
 						fdclose = sendMsgResponse(localfd, &response);
-						int i;
-						message_t* curr_msg;
 						if (!fdclose) {
-							history_foreach(nick, i, curr_msg) {
+							int i;
+							message_t* curr_msg;
+							history_foreach(sender, i, curr_msg) {
 								if (sendMsgResponse(localfd, curr_msg)) {
 									fdclose = true;
 									break;
 								}
 							}
 						}
-						error_handling_unlock(&(nick->mutex));
+						error_handling_unlock(&(sender->mutex));
+					}
+				}
+				break;
+				case POSTTXTALL_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta POSTTXTALL_OP\n", workerNumber);
+					#endif
+					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						msg.hdr.op = TXT_MESSAGE;
+						int i;
+						icl_entry_t* j;
+						char* key;
+						nickname_t* val;
+						icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
+							add_to_history(val, msg);
+							if (val->fd > 0) {
+								sendRequest(val->fd, &msg);
+							}
+						}
+						setHeader(&response.hdr, OP_OK, "");
+						fdclose = sendHdrResponse(localfd, &response.hdr);
 					}
 				}
 				break;

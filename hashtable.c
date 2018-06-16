@@ -21,21 +21,18 @@ nickname_t* create_nickname(int history_size) {
 }
 
 void free_nickname_t(void* val) {
-	error_handling_lock(&(((nickname_t*)val)->mutex));
+	nickname_t* tmp = (nickname_t*)val;
+	error_handling_lock(&(tmp->mutex));
 	// Free del contenuto dei messaggi
-	nickname_t tmp = *(nickname_t*)val;
-	for (int i = tmp.first; i >= 0; --i) {
-		free(tmp.history[i].data.buf);
+	int i;
+	message_t* msg;
+	history_foreach(tmp, i, msg) {
+		free(msg->data.buf);
 	}
-	if (tmp.history[tmp.hist_size - 1].hdr.op != OP_FAKE_MSG) {
-		for (int i = tmp.hist_size - 1; i >= tmp.first; --i) {
-			free(tmp.history[i].data.buf);
-		}
-	}
-	free(tmp.history);
-	error_handling_unlock(&(tmp.mutex));
-	pthread_mutex_destroy(&(tmp.mutex));
-	free((nickname_t*)val);
+	free(tmp->history);
+	error_handling_unlock(&(tmp->mutex));
+	pthread_mutex_destroy(&(tmp->mutex));
+	free(tmp);
 }
 
 // ------- Funzioni esportate --------------
@@ -67,8 +64,6 @@ int history_len(nickname_t* nick) {
 }
 
 bool search_file_history(nickname_t* nick, char* name) {
-	for (int i = nick->first + nick->hist_size; i > (is_history_full(nick) ? nick->first : nick->hist_size); --i)
-
 	for (int i = nick->first; i >= 0; --i) {
 		if (nick->history[i].hdr.op == POSTFILE_OP
 			&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
