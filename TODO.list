@@ -3,9 +3,9 @@
 - ricontrollare tutti i memory leak rimasti in giro. In particolare:
   - deallocare tutte le mutex allocate in giro
 - implementare la gestione delle varie operazioni:
-  - POSTTXTALL_OP
-  - POSTFILE_OP
-  - GETFILE_OP
   - GETPREVMSGS_OP
+  - POSTTXTALL_OP
   - UNREGISTER_OP
   - DISCONNECT_OP
+  - POSTFILE_OP
+  - GETFILE_OP

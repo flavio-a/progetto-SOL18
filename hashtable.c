@@ -11,7 +11,7 @@
 nickname_t* create_nickname(int history_size) {
 	nickname_t* res = malloc(sizeof(nickname_t));
 	res->fd = 0;
-	res->first = 0;
+	res->first = -1;
 	res->hist_size = history_size;
 	res->history = malloc(history_size * sizeof(message_t));
 	// questo segnala se l'ultimo messaggio è stato mai inizializzato o meno
@@ -38,14 +38,14 @@ void free_nickname_t(void* val) {
 	free((nickname_t*)val);
 }
 
-bool is_history_full(nickname_t* nick) {
-	return nick->history[nick->hist_size - 1].hdr.op != OP_FAKE_MSG;
-}
-
 // ------- Funzioni esportate --------------
 // Documentate in hashtable.h
 
 // ============================= nickname_t ====================================
+bool is_history_full(nickname_t* nick) {
+	return nick->history[nick->hist_size - 1].hdr.op != OP_FAKE_MSG;
+}
+
 void add_to_history(nickname_t* nick, message_t msg) {
 	// aggiunta alla coda circolare: aumento l'indice di testa e sostituisco
 	error_handling_lock(&(nick->mutex));
@@ -59,14 +59,25 @@ void add_to_history(nickname_t* nick, message_t msg) {
 	error_handling_unlock(&(nick->mutex));
 }
 
+int history_len(nickname_t* nick) {
+	error_handling_lock(&(nick->mutex));
+	if (is_history_full(nick))
+		return nick->hist_size;
+	else
+		return nick->first + 1;
+	error_handling_unlock(&(nick->mutex));
+}
+
 bool search_file_history(nickname_t* nick, char* name) {
+	for (int i = nick->first + nick->hist_size; i > (is_history_full(nick) ? nick->first : nick->hist_size); --i)
+
 	for (int i = nick->first; i >= 0; --i) {
 		if (nick->history[i].hdr.op == POSTFILE_OP
 			&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
 			return true;
 	}
 	if (is_history_full(nick)) {
-		for (int i = nick->hist_size - 1; i >= nick->first; --i) {
+		for (int i = nick->hist_size - 1; i > nick->first; --i) {
 			if (nick->history[i].hdr.op == POSTFILE_OP
 				&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
 				return true;

@@ -41,6 +41,11 @@ creare l'elenco dei nickname connessi e per gestire le disconnessioni.
 In caso di errori durante l'esecuzione di una richiesta (es: REGISTER_OP con
 nickname già esistente) il server disconnette il client.
 
+Per scorrere la history c'è una macro che funziona pensando la history
+circolare come replicata dagli indici [0; hist_size) e [hist_size; 2 hist_size),
+e scorre da (first + hist_size) a (first + 1) scendendo. Se la history non
+è piena si ferma a hist_size.
+
 La politica lettori-scrittori è gestita così:
 * lettore:
     per entrare:

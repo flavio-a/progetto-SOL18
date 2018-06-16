@@ -421,7 +421,7 @@ void* worker_thread(void* arg) {
 			message_t response;
 			nickname_t* nick;
 			switch (msg.hdr.op) {
-				case REGISTER_OP:
+				case REGISTER_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta REGISTER_OP\n", workerNumber);
 					#endif
@@ -429,7 +429,7 @@ void* worker_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
-						setHeader(&(response.hdr), OP_NICK_ALREADY, "");
+						setHeader(&response.hdr, OP_NICK_ALREADY, "");
 						if (!sendHdrResponse(localfd, &response.hdr))
 							disconnectClient(localfd);
 						fdclose = true;
@@ -444,8 +444,9 @@ void* worker_thread(void* arg) {
 						pthread_mutex_unlock(&connected_mutex);
 						fdclose = sendMsgResponse(localfd, &response);
 					}
-					break;
-				case CONNECT_OP:
+				}
+				break;
+				case CONNECT_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta CONNECT_OP\n", workerNumber);
 					#endif
@@ -455,7 +456,7 @@ void* worker_thread(void* arg) {
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
-							setHeader(&(response.hdr), OP_FAIL, "");
+							setHeader(&response.hdr, OP_FAIL, "");
 							if (!sendHdrResponse(localfd, &response.hdr))
 								disconnectClient(localfd);
 							fdclose = true;
@@ -476,13 +477,14 @@ void* worker_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
-						setHeader(&(response.hdr), OP_NICK_UNKNOWN, "");
+						setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
 						if (!sendHdrResponse(localfd, &response.hdr))
 							disconnectClient(localfd);
 						fdclose = true;
 					}
-					break;
-				case USRLIST_OP:
+				}
+				break;
+				case USRLIST_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta USRLIST_OP\n", workerNumber);
 					#endif
@@ -490,8 +492,9 @@ void* worker_thread(void* arg) {
 					responseConnectedList(&response);
 					pthread_mutex_unlock(&connected_mutex);
 					fdclose = sendMsgResponse(localfd, &response);
-					break;
-				case POSTTXT_OP:
+				}
+				break;
+				case POSTTXT_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta POSTTXT_OP\n", workerNumber);
 					#endif
@@ -501,11 +504,35 @@ void* worker_thread(void* arg) {
 					if (receiver->fd > 0) {
 						sendRequest(receiver->fd, &msg);
 					}
-					setHeader(&(response.hdr), OP_OK, "");
+					setHeader(&response.hdr, OP_OK, "");
 					fdclose = sendHdrResponse(localfd, &response.hdr);
-					break;
-				default:
-					break;
+				}
+				break;
+				case GETPREVMSGS_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
+					#endif
+					nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+					setHeader(&response.hdr, OP_OK, "");
+					size_t nmsgs = history_len(receiver);
+					setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
+					fdclose = sendMsgResponse(localfd, &response);
+					int i;
+					message_t* curr_msg;
+					if (!fdclose) {
+						history_foreach(receiver, i, curr_msg) {
+							if (sendMsgResponse(localfd, curr_msg)) {
+								fdclose = true;
+								break;
+							}
+						}
+					}
+				}
+				break;
+				default: {
+
+				}
+				break;
 			}
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero

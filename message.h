@@ -87,7 +87,10 @@ typedef struct {
  * - OP_OK, lista degli utenti connessi: il buffer deve essere una stringa formata
           dai nomi dei client connessi, facendo occupare ad ogni nome
           MAX_NAME_LENGTH + 1 caratteri (non utilizzando quelli dopo \0)
- * - OP_OK, lista dei messaggi: il buffer deve essere in qualche formato (TODOC)
+ * - OP_OK, lista dei messaggi: il buffer deve essere un size_t* che contiene il
+          di messaggi della history (non importa il valore di msg.data.hdr.len).
+          All'invio di questa risposta deve seguire l'invio dei messaggi salvati
+          nella history.
  *
  * @var message_t::hdr
  * header

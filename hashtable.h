@@ -38,6 +38,26 @@ typedef struct nickname {
 } nickname_t;
 
 /**
+ * @brief Itera su tutta l'history.
+ *
+ * @param nick (nickname_t*) Il nickname sulla cui history si vuole iterare.
+ * @param i (int) L'indice nella history, va usato sempre modulo hist_size.
+ * @param msg (message_t*) Puntatore all'elemento corrente della history.
+ */
+#define history_foreach(nick, i, msg) \
+	for(msg = &(nick->history[(i = nick->first + nick->hist_size) % nick->hist_size]); \
+		i > (is_history_full(nick) ? nick->first : nick->hist_size); \
+		msg = &(nick->history[(--i) % nick->hist_size]))
+
+/**
+ * @brief Controlla se l'history di un nickname_t è piena.
+ *
+ * @param nick Il nickname su cui controllare.
+ * @return True se l'history è piena, false altrimenti.
+ */
+bool is_history_full(nickname_t* nick);
+
+/**
  * @brief Aggiunge un messaggio alla history. Gestisce la concorrenza e libera
  * la memoria quando serve.
  *
@@ -45,6 +65,14 @@ typedef struct nickname {
  * @param msg Il messaggio da aggiungere
  */
 void add_to_history(nickname_t* nick, message_t msg);
+
+/**
+ * @brief Calcola la lunghezza della history.
+ *
+ * @param nick Il nickname_t di cui calcolare la lunghezza della history.
+ * @return La lunghezza della history.
+ */
+int history_len(nickname_t* nick);
 
 /**
  * @brief Cerca un nome di file nella history
