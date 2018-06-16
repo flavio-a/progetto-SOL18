@@ -91,6 +91,7 @@ htable_t* hash_create(int nbuckets, int history_size) {
 }
 
 int ts_hash_destroy(htable_t* ht) {
+	// TODO (opt): togliere la sincronizzazione
 	error_handling_lock(&(ht->mutex));
 	int res = icl_hash_destroy(ht->htable, &free, &free_nickname_t);
 	if (res == 0)

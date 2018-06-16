@@ -38,7 +38,8 @@ typedef struct nickname {
 } nickname_t;
 
 /**
- * @brief Itera su tutta l'history.
+ * @brief Itera su tutta l'history. Si aspetta che il lock su nick->mutex sia
+ * già stato acquisito.
  *
  * @param nick (nickname_t*) Il nickname sulla cui history si vuole iterare.
  * @param i (int) L'indice nella history, va usato sempre modulo hist_size.
@@ -60,6 +61,10 @@ bool is_history_full(nickname_t* nick);
 /**
  * @brief Aggiunge un messaggio alla history. Gestisce la concorrenza e libera
  * la memoria quando serve.
+ *
+ * TODO (opt): non fargli acquisire la lock. In chatty:627 (nel case di
+ * POSTTXTALL_OP) viene eseguita subito prima di un'altra operazione che
+ * necessita della stessa lock.
  *
  * @param nick Il nickname_t a cui aggiungere il messaggio
  * @param msg Il messaggio da aggiungere (il messaggio viene copiato , incluso

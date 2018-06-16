@@ -27,12 +27,12 @@ scrivere nella variabile di informazione, se l'ack è a 1 vuol dire che il
 listener deve leggere il valore. Non c'è bisogno di lock su questa comunicazione
 perché è a due entità, ognuna che lavora solo se l'ack ha il suo valore e che
 una volta finita l'elaborazione cambia l'ack al valore dell'altra (quindi
-agiscono per forza alternate)
+agiscono per forza alternate).
 
 Se il gestore dei segnali riceve un segnale SIGUSR1 lo gestisce scrivendo su file
 quello che deve scrivere (durante questa operazione non gestisce altri segnali).
-Se riceve SIGINT, SIGTERM o SIGQUIT ritorna al main (deve anche mandare dei
-segnali di interruzione agli altri thread?), che si occupa di liberare la
+Se riceve SIGINT, SIGTERM o SIGQUIT invia un soft break a listener e workers e
+ritorna al main, il quale aspetta la fine degli altri threads e poi libera la
 memoria allocata.
 
 Oltre all'hashtable dei nickname c'è una mappa fd->nickname, utilizzata per
@@ -45,6 +45,35 @@ Per scorrere la history c'è una macro che funziona pensando la history
 circolare come replicata dagli indici [0; hist_size) e [hist_size; 2 hist_size),
 e scorre da (first + hist_size) a (first + 1) scendendo. Se la history non
 è piena si ferma a hist_size.
+
+Ci sono tre livelli di lock su chatty per gestire le modifiche dovute ai client:
+* la mutex interna dell'hashtable, che serve solo ad evitare che scritture,
+  rimozioni e distruzione dell'intera hashtable siano sincronizzate (non viene
+  mai usata esplicitamente, solo tramite la libreria hashtable.h)
+* la mutex globale connected_mutex, che serve per sincronizzare num_connected,
+  fd_to_nickname e fdnum.
+  fdnum può essere scritta solo dal listener e, fuori da esso, viene usata solo
+  come limite superiore per fd_to_nickname. Dato che anche questo array può
+  essere allungato solo dal listener e il listener lo allunga solo per
+  rispondere ad un nuovo possibile fd (che quindi non è ancora stato passato a
+  nessun worker) basta assicurarsi di modificare fdnum solo DOPO aver allungato
+  fd_to_nickname per garantire il funzionamento dei worker.
+  fd_to_nickname[fd] viene utilizzato solo in lettura da tutti i worker tranne
+  quello che sta gestendo fd. Dato che ogni worker gestisce un solo fd, questo
+  riduce il numero di lock necessarie per accedervi: il worker che sta trattando
+  fd infatti non ha bisogno di lock in lettura perché nessun altro thread sta
+  trattando fd, quindi non possono esserci scrittori contemporanei alla sua
+  lettura. Gli altri thread invece devono sincronizzare le letture per attendere
+  le scritture dell'eventuale worker che sta gestendo fd.
+  num_connected va sincronizzato completamente perché tutti i worker possono
+  accedervi sia in lettura che in scrittura.
+* le mutex dei singoli nickname_t, che servono a sincronizzare qualsiasi modifica
+  alla struttura dati.
+La garanzia che un solo worker stia gestendo un fd viene dal fatto che il
+listener mette in coda solo fd su cui ha aperto nuove connessioni, cosa che può
+succedere solo se l'fd è stato chiuso dal worker che lo stava gestendo prima.
+Ci sono casi in cui un thread acquisisce sia connected_mutex che la mutex di un
+nickname_t. Per evitare deadlock, connected_mutex viene sempre acquisita prima.
 
 La politica lettori-scrittori è gestita così:
 * lettore:

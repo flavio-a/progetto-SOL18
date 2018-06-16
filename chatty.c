@@ -34,7 +34,8 @@
 #include "lock.h"
 
 #define NICKNAME_HASH_BUCKETS_N 100000
-#define INITIAL_CONNECTED_SIZE 200
+#define INITIAL_CONNECTED_SIZE 50
+#define TERMINATION_FD -1
 
 /**
  * Struttura che memorizza le statistiche del server, struct statistics
@@ -64,6 +65,11 @@ volatile sig_atomic_t received_sigusr2 = false;
 pthread_t listener;
 
 /**
+ * Variabile globale per interrompere i cicli infiniti dei thread
+ */
+bool threads_continue = true;
+
+/**
  * Hashtable condivisa che contiene i nickname registrati
  */
 htable_t* nickname_htable;
@@ -77,6 +83,14 @@ int fdnum;
 pthread_mutex_t connected_mutex;
 
 /**
+ * Costanti globali lette dal file di configurazione
+ */
+int ThreadsInPool;
+int MaxMsgSize;
+int MaxFileSize;
+
+
+/**
  * @brief Funzione che spiega l'utilizzo del server
  * @param progname il nome del file eseguibile (argc[0])
  */
@@ -84,6 +98,7 @@ void usage(const char *progname) {
 	fprintf(stderr, "Il server va lanciato con il seguente comando:\n");
 	fprintf(stderr, "  %s -f conffile\n", progname);
 }
+
 
 /**
  * @brief main del thread che si occupa della gestione dei segnali
@@ -109,7 +124,7 @@ void signal_handler_thread() {
 		exit(EXIT_FAILURE);
 	}
 
-	while(true) { // uscita dal ciclo con il break interno
+	while(threads_continue) {
 		if (sigwait(&handled_signals, &sig_received) < 0) {
 			perror("sigwait");
 			exit(EXIT_FAILURE);
@@ -134,7 +149,14 @@ void signal_handler_thread() {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto segnale di interruzione, chiudo su tutto per bene\n");
 			#endif
-			// gestire il segnale
+			threads_continue = false;
+			// Sblocca il listener con un SIGUSR2
+			// Si potrebbe usare un segnale diverso, ma è sbatti per quasi nessun guadagno
+			pthread_kill(listener, SIGUSR2);
+			// Sblocca i worker con un TERMINATION_FD
+			for (unsigned int i = 0; i < ThreadsInPool; ++i) {
+				ts_push(&queue, TERMINATION_FD);
+			}
 			break;
 		}
 	}
@@ -157,13 +179,11 @@ static void siguser2_handler(int signum) {
  * Gestisce sia le richieste di nuove connessioni, sia i messaggi inviati dai
  * client già connessi
  *
- * @param arg array di due interi, rispettivamente il fd del socket e il numero
- *			di worker
+ * @param arg il fd del socket
  */
 void* listener_thread(void* arg) {
-	// Salva gli input
-	int ssfd = ((int*)arg)[0];
-	int worker_num = ((int*)arg)[1];
+	// Salva l'input
+	int ssfd = *(int*)arg;
 
 	// Smaschera SIGUSR2
 	sigset_t sigset;
@@ -175,20 +195,21 @@ void* listener_thread(void* arg) {
 		perror("pthread_sigmask nel listener");
 		exit(EXIT_FAILURE);
 	}
-	// Installa l'handler
+	// Installa l'handler per SIGUSR2
 	struct sigaction sigusr2_action;
 	sigusr2_action.sa_handler = &siguser2_handler;
 	if (sigaction(SIGUSR2, &sigusr2_action, NULL) < 0) {
 		perror("installando l'handler per SIGUSR2");
 		exit(EXIT_FAILURE);
 	}
+
 	// Preparazione iniziale del fd_set
 	fd_set set, rset;
 	FD_ZERO(&set);
 	FD_SET(ssfd, &set);
 
 	// Ciclo di esecuzione
-	while (true) {
+	while (threads_continue) {
 		rset = set;
 		// Usa la SC select per ascoltare contemporaneamente su molti socket
 		if (select(fdnum + 1, &rset, NULL, NULL, NULL) < 0) {
@@ -198,8 +219,7 @@ void* listener_thread(void* arg) {
 				received_sigusr2 = false;
 				// Controlla quali ack sono a 1 (eventualmente nessuno, in caso
 				// di segnali spurii)
-				for (int i = 0; i < worker_num; ++i) {
-					// pthread_mutex_lock(freefd_lock + i);
+				for (int i = 0; i < ThreadsInPool; ++i) {
 					if (freefd_ack[i] == 1) {
 						// Aggiunge freefd[i] alla bitmap su cui esegue la select
 						FD_SET(freefd[i], &set);
@@ -207,40 +227,45 @@ void* listener_thread(void* arg) {
 						// arrivato da un worker è stato accettato da listener,
 						// quindi ha già modificato fd_num
 						freefd_ack[i] = 0;
-						// #ifdef DEBUG
-						// 	fprintf(stderr, "Ricevuto un fd da un worker\n");
-						// #endif
 					}
-					// pthread_mutex_unlock(freefd_lock + i);
 				}
 			}
 			else
 				perror("select del listener");
 		}
-		else { // select terminata correttamente
+		else {
+			// Select terminata correttamente: controlla quale fd è pronto
 			for (int fd = 0; fd <= fdnum; ++fd) {
 				if (FD_ISSET(fd, &rset)) {
 					if (fd == ssfd) {
-						// richiesta di nuova connessione
+						// Richiesta di nuova connessione
 						int newfd = accept(ssfd, NULL, 0);
 						#ifdef DEBUG
 							fprintf(stderr, "Richiesta di nuova connessione: %d\n", newfd);
 						#endif
 						FD_SET(newfd, &set);
+						// Non serve la lock prima della lettura perché il listener
+						// è l'unico che modifica fdnum
 						if (newfd > fdnum) {
-							error_handling_lock(&connected_mutex);
 							if (newfd > INITIAL_CONNECTED_SIZE) {
+								// Questa lock in realtà serve solo a sincronizzare
+								// il listener e il main in caso di terminazione
+								error_handling_lock(&connected_mutex);
 								fd_to_nickname = realloc(fd_to_nickname, (newfd + 1) * sizeof(char*));
 								for (int i = fdnum; i < newfd; ++i) {
 									fd_to_nickname[i] = NULL;
 								}
+								fdnum = newfd;
+								error_handling_unlock(&connected_mutex);
 							}
-							fdnum = newfd;
-							error_handling_unlock(&connected_mutex);
+							else {
+								// Niente resize => niente lock
+								fdnum = newfd;
+							}
 						}
 					}
 					else {
-						// richiesta su una connessione già aperta
+						// Richiesta su una connessione già aperta
 						#ifdef DEBUG
 							fprintf(stderr, "Richiesta su fd %d\n", fd);
 						#endif
@@ -262,12 +287,16 @@ void* listener_thread(void* arg) {
  * dal fd passato. Se il fd passato non ha associato nessun client, viene
  * solamente chiuso il fd.
  *
- * @param fd
+ * Il fd passato DEVE essere aperto e gestito dal worker attuale (perché questo
+ * garantisce la sincronizzazione, vedere la relazione).
+ *
+ * @param fd Il fd su cui lavorare
  */
 void disconnectClient(int fd) {
-	close(fd);
-	if (fd_to_nickname[fd] == NULL)
+	if (fd_to_nickname[fd] == NULL) {
+		close(fd);
 		return;
+	}
 	#ifdef DEBUG
 		fprintf(stderr, "Un client si è disconnesso (fd %d, nick \"%s\") :c\n", fd, fd_to_nickname[fd]);
 	#endif
@@ -280,6 +309,7 @@ void disconnectClient(int fd) {
 	free(fd_to_nickname[fd]);
 	fd_to_nickname[fd] = NULL;
 	error_handling_unlock(&connected_mutex);
+	close(fd);
 }
 
 /**
@@ -290,17 +320,16 @@ void disconnectClient(int fd) {
  *
  * @param nick Il nickname che si è connesso.
  * @param fd Il fd su cui si è connesso.
- * @param nick_data (opzionale) La struttura nickname_t associata a quel nickname
- *                  in nickname_htable. Se viene passato NULL, la funzione lo
- *                  estrae da sola dall'hashtable.
+ * @param nick_data La struttura nickname_t associata a quel nickname in
+ *                  nickname_htable.
  */
 void connectClient(char* nick, int fd, nickname_t* nick_data) {
-	++num_connected;
-	if (nick_data == NULL)
-		nick_data = ts_hash_find(nickname_htable, nick);
+	error_handling_lock(&(nick_data->mutex));
 	nick_data->fd = fd;
-	fd_to_nickname[fd] = malloc(strlen(nick) * sizeof(char*));
-	strncpy(fd_to_nickname[fd], nick, strlen(nick));
+	error_handling_unlock(&(nick_data->mutex));
+	fd_to_nickname[fd] = malloc((strlen(nick) + 1) * sizeof(char*));
+	strncpy(fd_to_nickname[fd], nick, strlen(nick) + 1);
+	++num_connected;
 }
 
 /**
@@ -333,7 +362,7 @@ void responseConnectedList(message_t* msg) {
  * @param fd Il fd su cui inviare la risposta.
  * @param res Il messaggio da inviare come risposta.
  * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
- *         false altrimenti)
+ *         false altrimenti). Se ritorna true, ha già disconnesso il client.
  */
 bool sendMsgResponse(int fd, message_t* res) {
 	#ifdef DEBUG
@@ -358,7 +387,7 @@ bool sendMsgResponse(int fd, message_t* res) {
  * @param fd Il fd su cui inviare la risposta.
  * @param res L'header da inviare.
  * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
- *         false altrimenti)
+ *         false altrimenti). Se ritorna true, ha già disconnesso il client.
  */
 bool sendHdrResponse(int fd, message_hdr_t* res) {
 	#ifdef DEBUG
@@ -385,7 +414,7 @@ bool sendHdrResponse(int fd, message_hdr_t* res) {
  * @param nick Il nickname
  * @param fd Il fd da cui arriva la richiesta
  * @param nick_data Il nickname_t associato al nickname passato
- * @return True se il client è regolare, altrimenti false
+ * @return true se il client è regolare, altrimenti false
  */
 bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 	message_t response;
@@ -414,25 +443,29 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 /**
  * @brief main di un thread worker, che esegue una operazione alla volta
  *
- * I thread worker si mettono in attesa sulla coda condivisa per delle operazioni
- * da svolgere; non appena ne ricevono una la eseguono, rispondendo al client
- * che l'ha richiesta
+ * I thread worker si mettono in attesa sulla coda condivisa per delle
+ * operazioni da svolgere; non appena ne ricevono una la eseguono, rispondendo
+ * al client che l'ha richiesta.
  *
  * @param arg il proprio numero d'indice
  */
 void* worker_thread(void* arg) {
 	int workerNumber = *(int*)arg;
 
-	while(true) {
+	while(threads_continue) {
 		int localfd = ts_pop(&queue);
+		if (localfd == TERMINATION_FD) {
+			// Ha ricevuto il fd falso passato dal signal_handler_thread
+			break;
+		}
 		// #ifdef DEBUG
 		// 	fprintf(stderr, "%d: Inizio lavoro su fd %d\n", workerNumber, localfd);
 		// #endif
 		message_t msg;
 		bool fdclose = false;
 		// Le comunicazioni iniziano sempre con un messaggio
-		int readRes = readMsg(localfd, &msg);
-		if (readRes < 0) {
+		int readResult = readMsg(localfd, &msg);
+		if (readResult < 0) {
 			if (errno == ECONNRESET) {
 				#ifdef DEBUG
 					fprintf(stderr, "%d: un client è crashato (fd %d)\n", workerNumber, localfd);
@@ -444,13 +477,12 @@ void* worker_thread(void* arg) {
 				perror("leggendo un messaggio");
 			}
 		}
-		else if (readRes == 0) {
+		else if (readResult == 0) {
 			// Client disconnesso
 			disconnectClient(localfd);
 			fdclose = true;
 		}
 		else {
-			// Messaggio da inviare in risposta al client
 			message_t response;
 			nickname_t* sender;
 			switch (msg.hdr.op) {
@@ -487,6 +519,7 @@ void* worker_thread(void* arg) {
 					if ((sender = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
 						error_handling_lock(&(sender->mutex));
 						if (sender->fd != 0) {
+							error_handling_unlock(&(sender->mutex));
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
@@ -497,13 +530,13 @@ void* worker_thread(void* arg) {
 						}
 						else {
 							error_handling_unlock(&(sender->mutex));
-							pthread_mutex_lock(&connected_mutex);
-							connectClient(msg.hdr.sender, localfd, sender);
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
 							#endif
+							error_handling_lock(&connected_mutex);
+							connectClient(msg.hdr.sender, localfd, sender);
 							responseConnectedList(&response);
-							pthread_mutex_unlock(&connected_mutex);
+							error_handling_unlock(&connected_mutex);
 							fdclose = sendMsgResponse(localfd, &response);
 							free(response.data.buf);
 						}
@@ -539,9 +572,15 @@ void* worker_thread(void* arg) {
 						msg.hdr.op = TXT_MESSAGE;
 						nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
 						add_to_history(receiver, msg);
+						error_handling_lock(&(receiver->mutex));
 						if (receiver->fd > 0) {
+							// Non fa gestione dell'errore perché se non riesce
+							// ad inviare è un problema del client, il server se
+							// lo tiene nell'history e poi sarà il client a
+							// chiedergli di nuovo il messaggio.
 							sendRequest(receiver->fd, &msg);
 						}
+						error_handling_unlock(&(receiver->mutex));
 						setHeader(&response.hdr, OP_OK, "");
 						fdclose = sendHdrResponse(localfd, &response.hdr);
 					}
@@ -585,9 +624,11 @@ void* worker_thread(void* arg) {
 						nickname_t* val;
 						icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
 							add_to_history(val, msg);
+							error_handling_lock(&(val->mutex));
 							if (val->fd > 0) {
 								sendRequest(val->fd, &msg);
 							}
+							error_handling_unlock(&(val->mutex));
 						}
 						setHeader(&response.hdr, OP_OK, "");
 						fdclose = sendHdrResponse(localfd, &response.hdr);
@@ -654,9 +695,14 @@ int main(int argc, char *argv[]) {
 
 	// Parsing del file di configurazione
 	// TODO: cercare una libreria che lo faccia per me
-	int ThreadsInPool = 8;
+	ThreadsInPool = 8;
 	int MaxHistMsgs = 16;
+	MaxMsgSize = 512;
+	MaxFileSize = 1024;
+	int MaxConnections = 32;
 	char* UnixPath = "/tmp/chatty_socket";
+	char* DirName = "/tmp/chatty";
+	char* StatFileName = "/tmp/chatty_stats.txt";
 
 	fclose(conf_file);
 
@@ -691,29 +737,34 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Crea le strutture condivise
-	int listener_params[2];
+	int listener_param;
 	queue = create_fifo();
 	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
-	listener_params[0] = createSocket(UnixPath);
+	fdnum = createSocket(UnixPath);
 	pthread_t pool[ThreadsInPool];
 	freefd = malloc(ThreadsInPool * sizeof(int));
 	freefd_ack = calloc(ThreadsInPool, sizeof(char));
 	pthread_mutex_init(&connected_mutex, NULL);
-	fdnum = listener_params[0];
 	assert(INITIAL_CONNECTED_SIZE >= fdnum);
+	assert(TERMINATION_FD < 0);
 	fd_to_nickname = calloc(INITIAL_CONNECTED_SIZE + 1 , sizeof(char*));
 	// Crea i vari thread
-	listener_params[1] = ThreadsInPool;
-	pthread_create(&listener, NULL, &listener_thread, (void*)listener_params);
+	pthread_create(&listener, NULL, &listener_thread, &listener_param);
 	for (unsigned int i = 0; i < ThreadsInPool; ++i) {
 		// ricicla lo spazio di freefd per passare ai worker il loro numero
 		freefd[i] = i;
-		pthread_create(pool + i, NULL, &worker_thread, (void*)(freefd + i));
+		pthread_create(pool + i, NULL, &worker_thread, freefd + i);
 	}
 	// Diventa il thread che gestisce i segnali
 	signal_handler_thread();
-	// Se signal_handler_thread ritorna vuol dire che deve eseguire i cleanup
-	// finali e poi terminare
+	// Se signal_handler_thread ritorna vuol dire che deve aspettare gli altri
+	// thread, eseguire i cleanup finali e poi terminare
+	// In teoria queste chiamate non possono ritornare errore (gli errori
+	// segnati in man pthread_join non possono verificarsi in questi casi)
+	pthread_join(listener, NULL);
+	for (unsigned int i = 0; i < ThreadsInPool; ++i) {
+		pthread_join(pool + i, NULL);
+	}
 
 	// Elimina il socket
 	unlink(UnixPath);
@@ -728,10 +779,9 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	free(fd_to_nickname);
-	ts_hash_destroy(nickname_htable);
-	pthread_mutex_lock(&connected_mutex);
-	pthread_mutex_unlock(&connected_mutex);
+	// Non ci sono altri thread oltre a main, quindi nessuno ha il lock
 	pthread_mutex_destroy(&connected_mutex);
+	ts_hash_destroy(nickname_htable);
 
 	return 0;
 }

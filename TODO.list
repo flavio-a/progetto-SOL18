@@ -1,9 +1,12 @@
-- cercare una libreria per parsare il file di configurazione
-- gestire CONNECT_OP se un client è già connesso
-- ricontrollare tutti i memory leak rimasti in giro. In particolare:
-  - deallocare tutte le mutex allocate in giro
+- ricontrollare tutte le sincronizzazioni e gli usi delle variabili condivise
+- far gestire al listener il massimo numero di connessioni
+- far gestire ai worker la dimensione massima dei messaggi e dei file
+- capire cosa fare con i messaggi inviati a tutti e la history
 - implementare la gestione delle varie operazioni:
   - UNREGISTER_OP
   - DISCONNECT_OP
   - POSTFILE_OP
   - GETFILE_OP
+- ricontrollare tutti i memory leak rimasti in giro. In particolare:
+  - deallocare tutte le mutex allocate in giro
+- cercare una libreria per parsare il file di configurazione

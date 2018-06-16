@@ -73,10 +73,12 @@ fifo_t create_fifo() {
 
 // svuota la coda
 void clear_fifo(fifo_t* q) {
+	// TODO (opt): togliere la sincronizzazione
 	error_handling_lock(&(q->mutex));
-	while (!is_empty(*q))
-		// implementazione non ottimale, la pop fa del lavoro inutile
+	while (!is_empty(*q)) {
+		// TODO (opt): la pop fa del lavoro inutile, riscrivere
 		pop(q);
+	}
 	error_handling_unlock(&(q->mutex));
 	pthread_mutex_destroy(&(q->mutex));
 }

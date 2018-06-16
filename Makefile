@@ -94,26 +94,25 @@ doc:
 
 ########################### makerules per eseguire i test intermedi
 
-TESTS = connections fifo hashtable
+TESTS = connections fifo hashtable icl_hash
 
-.PHONY: cleantest runtestconnections runtestfifo
+SPECIAL_TESTS = connections
+
+.PHONY: cleantest $(addprefix runtest, $(TESTS))
 
 # si potrebbe evitare l'addprefix iniziale, ma così la shell autocompleta
 $(addprefix test, $(TESTS)): test%: test%.c $(INCLUDE_FILES)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) $(LDFLAGS) $(LIBS) -o $@ $^
+
+$(addprefix runtest, $(filter-out $(SPECIAL_TESTS),$(TESTS))): runtest%: test%
+	./$<
+	@echo "********** Test superato"
 
 runtestconnections: testconnections
 	(./$< server ; echo $$?) &
 	./$< client
 	@echo "********** Test superato"
 
-runtestfifo: testfifo
-	./$<
-	@echo "********** Test superato"
-
-runtesthashtable: testhashtable
-	./$<
-	@echo "********** Test superato"
 
 cleantest:
 	rm -f $(addprefix test, $(TESTS))
