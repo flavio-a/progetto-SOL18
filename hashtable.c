@@ -60,12 +60,10 @@ void add_to_history(nickname_t* nick, message_t msg) {
 }
 
 int history_len(nickname_t* nick) {
-	error_handling_lock(&(nick->mutex));
 	if (is_history_full(nick))
 		return nick->hist_size;
 	else
 		return nick->first + 1;
-	error_handling_unlock(&(nick->mutex));
 }
 
 bool search_file_history(nickname_t* nick, char* name) {
@@ -113,8 +111,8 @@ nickname_t* ts_hash_find(htable_t* ht, char* key) {
 
 nickname_t* ts_hash_insert(htable_t* ht, char* key) {
 	nickname_t* val = create_nickname(ht->hist_size);
-	char* new_key = malloc(strlen(key) * sizeof(char*));
-	strncpy(new_key, key, strlen(key));
+	char* new_key = malloc((strlen(key) + 1) * sizeof(char*));
+	strncpy(new_key, key, strlen(key) + 1);
 	error_handling_lock(&(ht->mutex));
 	icl_entry_t* res = icl_hash_insert(ht->htable, new_key, val);
 	error_handling_unlock(&(ht->mutex));

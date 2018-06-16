@@ -46,7 +46,7 @@ typedef struct nickname {
  */
 #define history_foreach(nick, i, msg) \
 	for(msg = &(nick->history[(i = nick->first + nick->hist_size) % nick->hist_size]); \
-		i > (is_history_full(nick) ? nick->first : nick->hist_size); \
+		i > (is_history_full(nick) ? nick->first : nick->hist_size - 1); \
 		msg = &(nick->history[(--i) % nick->hist_size]))
 
 /**
@@ -67,7 +67,8 @@ bool is_history_full(nickname_t* nick);
 void add_to_history(nickname_t* nick, message_t msg);
 
 /**
- * @brief Calcola la lunghezza della history.
+ * @brief Calcola la lunghezza della history. Si aspetta che il lock su
+ * nick->mutex sia già stato acquisito.
  *
  * @param nick Il nickname_t di cui calcolare la lunghezza della history.
  * @return La lunghezza della history.

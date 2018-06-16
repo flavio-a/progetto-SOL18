@@ -337,7 +337,7 @@ void responseConnectedList(message_t* msg) {
  */
 bool sendMsgResponse(int fd, message_t* res) {
 	#ifdef DEBUG
-		fprintf(stderr, "Invio risposta al client\n");
+		fprintf(stderr, "Invio risposta (msg) al client\n");
 	#endif
 	if (sendRequest(fd, res) < 0) {
 		if (errno == EPIPE) {
@@ -349,7 +349,6 @@ bool sendMsgResponse(int fd, message_t* res) {
 			perror("inviando un messaggio");
 		}
 	}
-	free(res->data.buf);
 	return false;
 }
 
@@ -363,7 +362,7 @@ bool sendMsgResponse(int fd, message_t* res) {
  */
 bool sendHdrResponse(int fd, message_hdr_t* res) {
 	#ifdef DEBUG
-		fprintf(stderr, "Invio risposta al client\n");
+		fprintf(stderr, "Invio risposta (hdr) al client\n");
 	#endif
 	if (sendHeader(fd, res) < 0) {
 		if (errno == EPIPE) {
@@ -376,6 +375,40 @@ bool sendHdrResponse(int fd, message_hdr_t* res) {
 		}
 	}
 	return false;
+}
+
+/**
+ * @brief Funzione che verifica i dati del client prima di eseguire le
+ * richieste che richiedono di essere connessi.
+ * Se il client non è "regolare" gli invia la risposta di fallimento.
+ *
+ * @param nick Il nickname
+ * @param fd Il fd da cui arriva la richiesta
+ * @param nick_data Il nickname_t associato al nickname passato
+ * @return True se il client è regolare, altrimenti false
+ */
+bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
+	message_t response;
+	if (nick_data == NULL) {
+		// nickname sconosciuto
+		#ifdef DEBUG
+			fprintf(stderr, "Richiesta di operazione da un nickname inesistente\n");
+		#endif
+		setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
+		if (!sendHdrResponse(fd, &response.hdr))
+			disconnectClient(fd);
+		return false;
+	}
+	if (nick_data->fd != fd) {
+		#ifdef DEBUG
+			fprintf(stderr, "Richiesta su un fd diverso da quello del nickname\n");
+		#endif
+		setHeader(&response.hdr, OP_FAIL, "");
+		if (!sendHdrResponse(fd, &response.hdr))
+			disconnectClient(fd);
+		return false;
+	}
+	return true;
 }
 
 /**
@@ -443,6 +476,7 @@ void* worker_thread(void* arg) {
 						responseConnectedList(&response);
 						pthread_mutex_unlock(&connected_mutex);
 						fdclose = sendMsgResponse(localfd, &response);
+						free(response.data.buf);
 					}
 				}
 				break;
@@ -471,6 +505,7 @@ void* worker_thread(void* arg) {
 							responseConnectedList(&response);
 							pthread_mutex_unlock(&connected_mutex);
 							fdclose = sendMsgResponse(localfd, &response);
+							free(response.data.buf);
 						}
 					}
 					else {
@@ -492,45 +527,59 @@ void* worker_thread(void* arg) {
 					responseConnectedList(&response);
 					pthread_mutex_unlock(&connected_mutex);
 					fdclose = sendMsgResponse(localfd, &response);
+					free(response.data.buf);
 				}
 				break;
 				case POSTTXT_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta POSTTXT_OP\n", workerNumber);
 					#endif
-					msg.hdr.op = TXT_MESSAGE;
-					nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
-					add_to_history(receiver, msg);
-					if (receiver->fd > 0) {
-						sendRequest(receiver->fd, &msg);
+					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						msg.hdr.op = TXT_MESSAGE;
+						nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+						add_to_history(receiver, msg);
+						if (receiver->fd > 0) {
+							sendRequest(receiver->fd, &msg);
+						}
+						setHeader(&response.hdr, OP_OK, "");
+						fdclose = sendHdrResponse(localfd, &response.hdr);
 					}
-					setHeader(&response.hdr, OP_OK, "");
-					fdclose = sendHdrResponse(localfd, &response.hdr);
 				}
 				break;
 				case GETPREVMSGS_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
 					#endif
-					nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
-					setHeader(&response.hdr, OP_OK, "");
-					size_t nmsgs = history_len(receiver);
-					setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
-					fdclose = sendMsgResponse(localfd, &response);
-					int i;
-					message_t* curr_msg;
+					fdclose = !checkConnected(msg.hdr.sender, localfd, nick = ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
-						history_foreach(receiver, i, curr_msg) {
-							if (sendMsgResponse(localfd, curr_msg)) {
-								fdclose = true;
-								break;
+						setHeader(&response.hdr, OP_OK, "");
+						error_handling_lock(&(nick->mutex));
+						size_t nmsgs = history_len(nick);
+						setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
+						fdclose = sendMsgResponse(localfd, &response);
+						int i;
+						message_t* curr_msg;
+						if (!fdclose) {
+							history_foreach(nick, i, curr_msg) {
+								if (sendMsgResponse(localfd, curr_msg)) {
+									fdclose = true;
+									break;
+								}
 							}
 						}
+						error_handling_unlock(&(nick->mutex));
 					}
 				}
 				break;
 				default: {
-
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta operazione sconosciuta\n", workerNumber);
+					#endif
+					setHeader(&response.hdr, OP_FAIL, "");
+					if (!sendHdrResponse(localfd, &response.hdr))
+						disconnectClient(localfd);
+					fdclose = true;
 				}
 				break;
 			}
