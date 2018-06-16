@@ -38,7 +38,8 @@ typedef struct nickname {
 } nickname_t;
 
 /**
- * @brief Aggiunge un messaggio alla history
+ * @brief Aggiunge un messaggio alla history. Gestisce la concorrenza e libera
+ * la memoria quando serve.
  *
  * @param nick Il nickname_t a cui aggiungere il messaggio
  * @param msg Il messaggio da aggiungere

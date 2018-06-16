@@ -283,10 +283,16 @@ void disconnectClient(int fd) {
 }
 
 /**
- * @brief TODO
+ * @brief Modifica le strutture dati necessarie per gestire la connessione di un
+ * client.
  *
- * Se nick_data == NULL, lo estrae da solo dall'hashtable. Si aspetta che sia
- * già stata acquisita la lock connected_mutex.
+ * Si aspetta che sia già stata acquisita la lock connected_mutex.
+ *
+ * @param nick Il nickname che si è connesso.
+ * @param fd Il fd su cui si è connesso.
+ * @param nick_data (opzionale) La struttura nickname_t associata a quel nickname
+ *                  in nickname_htable. Se viene passato NULL, la funzione lo
+ *                  estrae da sola dall'hashtable.
  */
 void connectClient(char* nick, int fd, nickname_t* nick_data) {
 	++num_connected;
@@ -321,6 +327,14 @@ void responseConnectedList(message_t* msg) {
 	setData(&(msg->data), "", conn_list, num_connected * (MAX_NAME_LENGTH + 1));
 }
 
+/**
+ * @brief Invia un messaggio come risposta ad una richiesta di un client.
+ *
+ * @param fd Il fd su cui inviare la risposta.
+ * @param res Il messaggio da inviare come risposta.
+ * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
+ *         false altrimenti)
+ */
 bool sendMsgResponse(int fd, message_t* res) {
 	#ifdef DEBUG
 		fprintf(stderr, "Invio risposta al client\n");
@@ -339,6 +353,14 @@ bool sendMsgResponse(int fd, message_t* res) {
 	return false;
 }
 
+/**
+ * @brief Invia un header come risposta ad una richiesta di un client.
+ *
+ * @param fd Il fd su cui inviare la risposta.
+ * @param res L'header da inviare.
+ * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
+ *         false altrimenti)
+ */
 bool sendHdrResponse(int fd, message_hdr_t* res) {
 	#ifdef DEBUG
 		fprintf(stderr, "Invio risposta al client\n");
@@ -398,9 +420,6 @@ void* worker_thread(void* arg) {
 			// Messaggio da inviare in risposta al client
 			message_t response;
 			nickname_t* nick;
-			// Quando scrive qualcosa deve sempre controllare se il descrittore
-			// è stato chiuso (ritorna -1, errno == EPIPE), in tal caso aggiornare
-			// i nickname connessi di conseguenza
 			switch (msg.hdr.op) {
 				case REGISTER_OP:
 					#ifdef DEBUG
@@ -411,7 +430,9 @@ void* worker_thread(void* arg) {
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
 						setHeader(&(response.hdr), OP_NICK_ALREADY, "");
-						fdclose = sendHdrResponse(localfd, &response.hdr);
+						if (!sendHdrResponse(localfd, &response.hdr))
+							disconnectClient(localfd);
+						fdclose = true;
 					}
 					else {
 						#ifdef DEBUG
@@ -429,22 +450,36 @@ void* worker_thread(void* arg) {
 						fprintf(stderr, "%d: Ricevuta CONNECT_OP\n", workerNumber);
 					#endif
 					if ((nick = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
-						pthread_mutex_lock(&connected_mutex);
-						// TODO: gestire se il nickname è già connesso
-						connectClient(msg.hdr.sender, localfd, nick);
-						#ifdef DEBUG
-							fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
-						#endif
-						responseConnectedList(&response);
-						pthread_mutex_unlock(&connected_mutex);
-						fdclose = sendMsgResponse(localfd, &response);
+						error_handling_lock(&(nick->mutex));
+						if (nick->fd != 0) {
+							#ifdef DEBUG
+								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
+							#endif
+							setHeader(&(response.hdr), OP_FAIL, "");
+							if (!sendHdrResponse(localfd, &response.hdr))
+								disconnectClient(localfd);
+							fdclose = true;
+						}
+						else {
+							error_handling_unlock(&(nick->mutex));
+							pthread_mutex_lock(&connected_mutex);
+							connectClient(msg.hdr.sender, localfd, nick);
+							#ifdef DEBUG
+								fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
+							#endif
+							responseConnectedList(&response);
+							pthread_mutex_unlock(&connected_mutex);
+							fdclose = sendMsgResponse(localfd, &response);
+						}
 					}
 					else {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
 						setHeader(&(response.hdr), OP_NICK_UNKNOWN, "");
-						fdclose = sendHdrResponse(localfd, &response.hdr);
+						if (!sendHdrResponse(localfd, &response.hdr))
+							disconnectClient(localfd);
+						fdclose = true;
 					}
 					break;
 				case USRLIST_OP:

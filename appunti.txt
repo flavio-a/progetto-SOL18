@@ -38,6 +38,9 @@ memoria allocata.
 Oltre all'hashtable dei nickname c'è una mappa fd->nickname, utilizzata per
 creare l'elenco dei nickname connessi e per gestire le disconnessioni.
 
+In caso di errori durante l'esecuzione di una richiesta (es: REGISTER_OP con
+nickname già esistente) il server disconnette il client.
+
 La politica lettori-scrittori è gestita così:
 * lettore:
     per entrare:

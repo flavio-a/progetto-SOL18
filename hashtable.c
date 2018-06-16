@@ -38,14 +38,25 @@ void free_nickname_t(void* val) {
 	free((nickname_t*)val);
 }
 
+bool is_history_full(nickname_t* nick) {
+	return nick->history[nick->hist_size - 1].hdr.op != OP_FAKE_MSG;
+}
+
 // ------- Funzioni esportate --------------
 // Documentate in hashtable.h
 
 // ============================= nickname_t ====================================
 void add_to_history(nickname_t* nick, message_t msg) {
 	// aggiunta alla coda circolare: aumento l'indice di testa e sostituisco
-	nick->first = (nick->first) + 1 % nick->hist_size;
+	error_handling_lock(&(nick->mutex));
+	nick->first = ((nick->first) + 1) % nick->hist_size;
+	if (is_history_full(nick)) {
+		// devo liberare la memoria occupata dal vecchio messaggio
+		if (nick->history[nick->first].data.buf != NULL)
+			free(nick->history[nick->first].data.buf);
+	}
 	nick->history[nick->first] = msg;
+	error_handling_unlock(&(nick->mutex));
 }
 
 bool search_file_history(nickname_t* nick, char* name) {
@@ -54,7 +65,7 @@ bool search_file_history(nickname_t* nick, char* name) {
 			&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
 			return true;
 	}
-	if (nick->history[nick->hist_size - 1].hdr.op != OP_FAKE_MSG) {
+	if (is_history_full(nick)) {
 		for (int i = nick->hist_size - 1; i >= nick->first; --i) {
 			if (nick->history[i].hdr.op == POSTFILE_OP
 				&& strncmp(nick->history[i].data.buf, name, nick->history[i].data.hdr.len) == 0)
