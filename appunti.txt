@@ -49,7 +49,8 @@ il listener controlla che il nuovo fd sia minore di MaxConnections + 4 e in
 base a quello stabilisce se le connessioni hanno raggiunto il limite. Inoltre
 nel codice tutti i controlli avvengono con MaxConnections (senza +4) perché dato
 che viene usato solo aumentato l'operazione viene fatta una volta per tutte
-all'avvio del server.
+all'avvio del server. Per evitare problemi con le operazioni da file, i fd su
+cui vengono aperti i file sono sempre spostati a valori maggiori con dup2.
 
 In caso di errori durante l'esecuzione di una richiesta (es: REGISTER_OP con
 nickname già esistente) il server disconnette il client.
@@ -92,6 +93,20 @@ Le statistiche posso farle sceme perché tanto il test è debole: se uno chiede 
 sua history aumenta i messaggi consegnati di hist_size. Messaggi non consegnati
 invece aumenta ogni volta che il tizio a cui devo inviare non è connesso, e non
 cala mai.
+
+Nonostante quello che fa il client di prova, il server permette UNREGISTER_OP
+solo per deregistrare il nickname con cui si è connessi.
+
+Vedere message.h per i dettagli su come vengono mandati i messaggi, le risposte,
+i possibili errori, etc...
+
+Non c'è nessun tipo di protezione dei file (?!): se qualcuno invia un file con
+lo stesso nome di un altro, quello vecchio viene sovrascritto. Ancora meglio, se
+due client inviano due file con lo stesso nome insieme il server non si fa
+problemi a scrivere sul file da due thread diversi, con tutti gli errori che ne
+conseguono. Per evitare problemi con il numero massimo di connessioni (gestite
+con i numeri di fd) i fd dei file vengono sempre spostati con dup2 sul valore
+MaxConnections + 4 + workerNumber (così si evitano collisioni tra i worker).
 
 La politica lettori-scrittori è gestita così:
 * lettore:

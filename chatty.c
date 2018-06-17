@@ -25,6 +25,9 @@
 #include <string.h>
 #include <sched.h>
 #include <sys/select.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "connections.h"
 #include "stats.h"
@@ -88,6 +91,7 @@ int ThreadsInPool;
 int MaxMsgSize;
 int MaxFileSize;
 int MaxConnections;
+char* DirName;
 
 
 /**
@@ -651,35 +655,9 @@ void* worker_thread(void* arg) {
 					}
 				}
 				break;
-				case GETPREVMSGS_OP: {
-					#ifdef DEBUG
-						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
-					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
-					if (!fdclose) {
-						// Client regolare, situazione normale
-						setHeader(&response.hdr, OP_OK, "");
-						error_handling_lock(&(sender->mutex));
-						size_t nmsgs = history_len(sender);
-						setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
-						fdclose = sendMsgResponse(localfd, &response);
-						if (!fdclose) {
-							int i;
-							message_t* curr_msg;
-							history_foreach(sender, i, curr_msg) {
-								if (sendMsgResponse(localfd, curr_msg)) {
-									fdclose = true;
-									break;
-								}
-							}
-						}
-						error_handling_unlock(&(sender->mutex));
-					}
-				}
-				break;
 				case POSTTXTALL_OP: {
 					#ifdef DEBUG
-						fprintf(stderr, "%d: Ricevuta POSTTXTALL_OP\n", workerNumber);
+					fprintf(stderr, "%d: Ricevuta POSTTXTALL_OP\n", workerNumber);
 					#endif
 					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
@@ -721,6 +699,175 @@ void* worker_thread(void* arg) {
 					}
 				}
 				break;
+				case GETPREVMSGS_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
+					#endif
+					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						// Client regolare, situazione normale
+						setHeader(&response.hdr, OP_OK, "");
+						error_handling_lock(&(sender->mutex));
+						size_t nmsgs = history_len(sender);
+						setData(&response.data, "", (char*)&nmsgs, sizeof(size_t));
+						fdclose = sendMsgResponse(localfd, &response);
+						if (!fdclose) {
+							int i;
+							message_t* curr_msg;
+							history_foreach(sender, i, curr_msg) {
+								if (sendMsgResponse(localfd, curr_msg)) {
+									fdclose = true;
+									break;
+								}
+							}
+						}
+						error_handling_unlock(&(sender->mutex));
+					}
+				}
+				break;
+				case POSTFILE_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta POSTFILE_OP\n", workerNumber);
+					#endif
+					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						// Client regolare
+						nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+						if (receiver == NULL) {
+							// Destinatario inesistente
+							setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						else {
+							// Situazione normale
+							// Crea e apre il file (così se succedono errori può
+							// esplodere subito)
+							message_data_t file;
+							char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
+							strncpy(full_filename, DirName, strlen(DirName));
+							full_filename[strlen(DirName)] = '/';
+							strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
+							#ifdef DEBUG
+								fprintf(stderr, "%d: salvo il file \"%s\"\n", workerNumber, full_filename);
+							#endif
+							int filefd = open(full_filename, O_WRONLY | O_CREAT);
+							if (filefd < 0
+								|| dup2(filefd, MaxConnections + workerNumber) < 0) {
+								perror("aprendo il file");
+								setHeader(&response.hdr, OP_FAIL, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+							// Scarica il file
+							else if (readData(localfd, &file) <= 0) {
+								perror("scaricando un file");
+								setHeader(&response.hdr, OP_FAIL, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+							// Salva il file
+							else if (write(MaxConnections + workerNumber, file.buf, file.hdr.len) < 0) {
+								perror("writing to output file");
+								setHeader(&response.hdr, OP_FAIL, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+							else {
+								// È andato tutto bene
+								msg.hdr.op = FILE_MESSAGE;
+								add_to_history(receiver, msg);
+								error_handling_lock(&(receiver->mutex));
+								if (receiver->fd > 0) {
+									// Non fa gestione dell'errore perché se non
+									// riesce ad inviare è un problema del client,
+									// il server se lo tiene nell'history e poi sarà
+									// il client a chiedergli di nuovo il messaggio.
+									sendRequest(receiver->fd, &msg);
+								}
+								error_handling_unlock(&(receiver->mutex));
+								setHeader(&response.hdr, OP_OK, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+						}
+					}
+				}
+				break;
+				// case GETFILE_OP: {
+				// 	#ifdef DEBUG
+				// 		fprintf(stderr, "%d: Ricevuta GETFILE_OP\n", workerNumber);
+				// 	#endif
+				// 	fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+				// 	if (!fdclose) {
+				// 		// Client regolare
+				// 		// Apre il file
+                //
+				// 		message_data_t file;
+				// 		char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
+				// 		strncpy(full_filename, DirName, strlen(DirName));
+				// 		full_filename[strlen(DirName)] = '/';
+				// 		strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
+				// 		#ifdef DEBUG
+				// 			fprintf(stderr, "%d: apro il file \"%s\"\n", workerNumber, full_filename);
+				// 		#endif
+				// 		int filefd = open(full_filename, O_RDONLY);
+				// 		if (filefd < 0) {
+				// 			if (errno == EACCES) {
+				// 				// File inesistente
+				// 				#ifdef DEBUG
+				// 					fprintf(stderr, "%d: il file richiesto non esiste\n", workerNumber);
+				// 				#endif
+				// 				setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
+				// 				fdclose = sendHdrResponse(localfd, &response.hdr);
+				// 			}
+				// 			else {
+				// 				perror("aprendo il file");
+				// 				setHeader(&response.hdr, OP_FAIL, "");
+				// 				fdclose = sendHdrResponse(localfd, &response.hdr);
+				// 			}
+				// 		}
+				// 		else if (dup2(filefd, MaxConnections + workerNumber) < 0) {
+				// 			perror("aprendo il file");
+				// 			setHeader(&response.hdr, OP_FAIL, "");
+				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
+				// 		}
+				// 		// Legge il file in memoria
+				// 		else if ((mappedfile = mmap(NULL, o->size, PROT_READ, MAP_PRIVATE, MaxConnections + workerNumber, 0)) == MAP_FAILED) {
+				// 			perror("mmap");
+				// 			fprintf(stderr, "ERRORE: mappando il file %s in memoria\n", o->msg);
+				// 			close(fd);
+				// 			return -1;
+				// 		else {
+				// 			message_data_t data;
+				// 			setData(&data, "", mappedfile, o->size);
+				// 			if (sendData(connfd, &data) == -1) { // invio il contenuto del file
+				// 			    perror("sending data");
+				// 			    fprintf(stderr, "ERRORE: spedendo il file %s\n", o->msg);
+				// 			    munmap(mappedfile, o->size);
+				// 			    return -1;
+				// 			}
+				// 			munmap(mappedfile, o->size);
+				// 	    }
+				// 		else if (write(MaxConnections + workerNumber, file.buf, file.hdr.len) < 0) {
+				// 			perror("writing to output file");
+				// 			setHeader(&response.hdr, OP_FAIL, "");
+				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
+				// 		}
+				// 		else {
+				// 			// È andato tutto bene
+				// 			msg.hdr.op = FILE_MESSAGE;
+				// 			add_to_history(receiver, msg);
+				// 			error_handling_lock(&(receiver->mutex));
+				// 			if (receiver->fd > 0) {
+				// 				// Non fa gestione dell'errore perché se non
+				// 				// riesce ad inviare è un problema del client,
+				// 				// il server se lo tiene nell'history e poi sarà
+				// 				// il client a chiedergli di nuovo il messaggio.
+				// 				sendRequest(receiver->fd, &msg);
+				// 			}
+				// 			error_handling_unlock(&(receiver->mutex));
+				// 			setHeader(&response.hdr, OP_OK, "");
+				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
+				// 		}
+				// 	}
+				// }
+				// break;
 				default: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta operazione sconosciuta\n", workerNumber);
@@ -791,7 +938,7 @@ int main(int argc, char *argv[]) {
 	MaxFileSize = 1024;
 	MaxConnections = 32;
 	char* UnixPath = "/tmp/chatty_socket";
-	char* DirName = "/tmp/chatty";
+	DirName = "/tmp/chatty";
 	char* StatFileName = "/tmp/chatty_stats.txt";
 
 	fclose(conf_file);
@@ -849,7 +996,8 @@ int main(int argc, char *argv[]) {
 	// Se signal_handler_thread ritorna vuol dire che deve aspettare gli altri
 	// thread, eseguire i cleanup finali e poi terminare
 	// In teoria queste chiamate non possono ritornare errore (gli errori
-	// segnati in man pthread_join non possono verificarsi in questi casi)
+	// segnati in man pthread_join non possono verificarsi in questo caso). E
+	// poi che gestione dell'errore faccio, termino il processo?
 	pthread_join(listener, NULL);
 	for (unsigned int i = 0; i < ThreadsInPool; ++i) {
 		pthread_join(pool[i], NULL);
