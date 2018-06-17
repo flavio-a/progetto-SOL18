@@ -24,10 +24,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
+#include <fcntl.h>
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#include <sys/mman.h>
 
 #include "connections.h"
 #include "stats.h"
@@ -750,7 +751,7 @@ void* worker_thread(void* arg) {
 							#ifdef DEBUG
 								fprintf(stderr, "%d: salvo il file \"%s\"\n", workerNumber, full_filename);
 							#endif
-							int filefd = open(full_filename, O_WRONLY | O_CREAT);
+							int filefd = open(full_filename, O_WRONLY | O_CREAT, 0755);
 							if (filefd < 0
 								|| dup2(filefd, MaxConnections + workerNumber) < 0) {
 								perror("aprendo il file");
@@ -789,85 +790,71 @@ void* worker_thread(void* arg) {
 					}
 				}
 				break;
-				// case GETFILE_OP: {
-				// 	#ifdef DEBUG
-				// 		fprintf(stderr, "%d: Ricevuta GETFILE_OP\n", workerNumber);
-				// 	#endif
-				// 	fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
-				// 	if (!fdclose) {
-				// 		// Client regolare
-				// 		// Apre il file
-                //
-				// 		message_data_t file;
-				// 		char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
-				// 		strncpy(full_filename, DirName, strlen(DirName));
-				// 		full_filename[strlen(DirName)] = '/';
-				// 		strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
-				// 		#ifdef DEBUG
-				// 			fprintf(stderr, "%d: apro il file \"%s\"\n", workerNumber, full_filename);
-				// 		#endif
-				// 		int filefd = open(full_filename, O_RDONLY);
-				// 		if (filefd < 0) {
-				// 			if (errno == EACCES) {
-				// 				// File inesistente
-				// 				#ifdef DEBUG
-				// 					fprintf(stderr, "%d: il file richiesto non esiste\n", workerNumber);
-				// 				#endif
-				// 				setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
-				// 				fdclose = sendHdrResponse(localfd, &response.hdr);
-				// 			}
-				// 			else {
-				// 				perror("aprendo il file");
-				// 				setHeader(&response.hdr, OP_FAIL, "");
-				// 				fdclose = sendHdrResponse(localfd, &response.hdr);
-				// 			}
-				// 		}
-				// 		else if (dup2(filefd, MaxConnections + workerNumber) < 0) {
-				// 			perror("aprendo il file");
-				// 			setHeader(&response.hdr, OP_FAIL, "");
-				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
-				// 		}
-				// 		// Legge il file in memoria
-				// 		else if ((mappedfile = mmap(NULL, o->size, PROT_READ, MAP_PRIVATE, MaxConnections + workerNumber, 0)) == MAP_FAILED) {
-				// 			perror("mmap");
-				// 			fprintf(stderr, "ERRORE: mappando il file %s in memoria\n", o->msg);
-				// 			close(fd);
-				// 			return -1;
-				// 		else {
-				// 			message_data_t data;
-				// 			setData(&data, "", mappedfile, o->size);
-				// 			if (sendData(connfd, &data) == -1) { // invio il contenuto del file
-				// 			    perror("sending data");
-				// 			    fprintf(stderr, "ERRORE: spedendo il file %s\n", o->msg);
-				// 			    munmap(mappedfile, o->size);
-				// 			    return -1;
-				// 			}
-				// 			munmap(mappedfile, o->size);
-				// 	    }
-				// 		else if (write(MaxConnections + workerNumber, file.buf, file.hdr.len) < 0) {
-				// 			perror("writing to output file");
-				// 			setHeader(&response.hdr, OP_FAIL, "");
-				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
-				// 		}
-				// 		else {
-				// 			// È andato tutto bene
-				// 			msg.hdr.op = FILE_MESSAGE;
-				// 			add_to_history(receiver, msg);
-				// 			error_handling_lock(&(receiver->mutex));
-				// 			if (receiver->fd > 0) {
-				// 				// Non fa gestione dell'errore perché se non
-				// 				// riesce ad inviare è un problema del client,
-				// 				// il server se lo tiene nell'history e poi sarà
-				// 				// il client a chiedergli di nuovo il messaggio.
-				// 				sendRequest(receiver->fd, &msg);
-				// 			}
-				// 			error_handling_unlock(&(receiver->mutex));
-				// 			setHeader(&response.hdr, OP_OK, "");
-				// 			fdclose = sendHdrResponse(localfd, &response.hdr);
-				// 		}
-				// 	}
-				// }
-				// break;
+				case GETFILE_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta GETFILE_OP\n", workerNumber);
+					#endif
+					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						// Client regolare
+						char* mappedfile;
+						struct stat st;
+						// Apre il file
+						char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
+						strncpy(full_filename, DirName, strlen(DirName));
+						full_filename[strlen(DirName)] = '/';
+						strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
+						#ifdef DEBUG
+							fprintf(stderr, "%d: apro il file \"%s\"\n", workerNumber, full_filename);
+						#endif
+						int filefd = open(full_filename, O_RDONLY);
+						if (filefd < 0) {
+							if (errno == EACCES) {
+								// File inesistente
+								#ifdef DEBUG
+									fprintf(stderr, "%d: il file richiesto non esiste\n", workerNumber);
+								#endif
+								setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+							else {
+								perror("aprendo il file");
+								setHeader(&response.hdr, OP_FAIL, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
+						}
+						else if (dup2(filefd, MaxConnections + workerNumber) < 0) {
+							perror("aprendo il file");
+							setHeader(&response.hdr, OP_FAIL, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						// Legge la lunghezza del file
+						else if (stat(full_filename, &st) < 0) {
+							perror("stat");
+							setHeader(&response.hdr, OP_FAIL, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						else if (!S_ISREG(st.st_mode)) {
+							fprintf(stderr, "ERRORE: il file %s non e' un file regolare\n", msg.data.buf);
+							setHeader(&response.hdr, OP_FAIL, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						// Legge il file in memoria
+						else if ((mappedfile = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, MaxConnections + workerNumber, 0)) == MAP_FAILED) {
+							perror("mmap");
+							fprintf(stderr, "ERRORE: mappando il file %s in memoria\n", msg.data.buf);
+							setHeader(&response.hdr, OP_FAIL, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						else {
+							// È andato tutto bene
+							setHeader(&response.hdr, OP_OK, "");
+							setData(&response.data, "", mappedfile, st.st_size);
+							fdclose = sendMsgResponse(localfd, &response);
+						}
+					}
+				}
+				break;
 				default: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta operazione sconosciuta\n", workerNumber);

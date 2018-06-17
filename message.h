@@ -104,7 +104,10 @@ typedef struct {
                   chi deve ricevere il file, msg.data.hdr.len è la lunghezza
                   del buffer (incluso il terminatore \0), msg.data.buf contiene
                   il nome del file in una stringa C valida. A questo segue
-                  l'invio effettivo del file.
+                  l'invio effettivo del file, ovvero un message_data_t con
+                  queste caratteristiche: data.hdr.receiver è una stringa vuota,
+                  data.hdr.len è la lunghezza del file e data.buf è l'intero
+                  file.
  * - GETFILE_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
                  connessi precedentemente), msg.data.hdr.len è la lunghezza
                  del buffer (incluso il terminatore \0), msg.data.buf contiene
@@ -120,12 +123,7 @@ typedef struct {
           di messaggi della history (non importa il valore di msg.data.hdr.len).
           All'invio di questa risposta deve seguire l'invio dei messaggi salvati
           nella history.
- * - OP_OK, file: il buffer contiene il nome del file. A questo messaggio segue
-          l'invio effettivo del file.
- *
- * I file vengono inviati come message_data_t che segue l'invio del messaggio
- * vero: data.hdr.receiver è una stringa vuota, data.hdr.len è la lunghezza del
- * file e data.buf è l'intero file.
+ * - OP_OK, file: il buffer contiene l'intero file.
  *
  * @var message_t::hdr
  * header
