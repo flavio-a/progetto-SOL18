@@ -67,8 +67,8 @@ bool is_history_full(nickname_t* nick);
  * necessita della stessa lock.
  *
  * @param nick Il nickname_t a cui aggiungere il messaggio
- * @param msg Il messaggio da aggiungere (il messaggio viene copiato , incluso
- *            il buffer)
+ * @param msg Il messaggio da aggiungere (il messaggio viene copiato, il
+              il puntatore al buffer però rimane lo stesso)
  */
 void add_to_history(nickname_t* nick, message_t msg);
 

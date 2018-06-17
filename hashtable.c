@@ -49,8 +49,12 @@ void add_to_history(nickname_t* nick, message_t msg) {
 	nick->first = ((nick->first) + 1) % nick->hist_size;
 	if (is_history_full(nick)) {
 		// devo liberare la memoria occupata dal vecchio messaggio
-		if (nick->history[nick->first].data.buf != NULL)
+		if (nick->history[nick->first].data.buf != NULL) {
+			#ifdef DEBUG
+				fprintf(stderr, "HTABLE: Libero il buffer sovrascrivendo la history %p\n", nick->history[nick->first].data.buf);
+			#endif
 			free(nick->history[nick->first].data.buf);
+		}
 	}
 	nick->history[nick->first] = msg;
 	error_handling_unlock(&(nick->mutex));

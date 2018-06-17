@@ -655,8 +655,18 @@ void* worker_thread(void* arg) {
 							int i;
 							icl_entry_t* j;
 							char* key;
-							nickname_t* val;
+							nickname_t.* val;
+							char* original_buffer = msg.data.buf;
 							icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
+								// Copia il buffer perché ogni history può
+								// cancellare il messaggio (con conseguente free
+								// del buffer) separatamente, quindi deve essere
+								// un puntatore diverso.
+								// TODO: implementare un puntatore
+								// multiriferimento che fa la free solo quando
+								// viene cancellato l'ultimo
+								msg.data.buf = malloc(msg.data.hdr.len * sizeof(char));
+								strncpy(msg.data.buf, original_buffer, msg.data.hdr.len);
 								add_to_history(val, msg);
 								error_handling_lock(&(val->mutex));
 								if (val->fd > 0) {
@@ -664,6 +674,7 @@ void* worker_thread(void* arg) {
 								}
 								error_handling_unlock(&(val->mutex));
 							}
+							free(original_buffer);
 							setHeader(&response.hdr, OP_OK, "");
 							fdclose = sendHdrResponse(localfd, &response.hdr);
 						}
@@ -805,24 +816,24 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Elimina il socket
-	#ifdef DEBUG
-		fprintf(stderr, "Unlink del socket\n");
-	#endif
+	// #ifdef DEBUG
+	// 	fprintf(stderr, "Unlink del socket\n");
+	// #endif
 	unlink(UnixPath);
 	// Libera la memoria che ha occupato all'inizio del programma
-	#ifdef DEBUG
-		fprintf(stderr, "Cancello la coda condivisa\n");
-	#endif
+	// #ifdef DEBUG
+	// 	fprintf(stderr, "Cancello la coda condivisa\n");
+	// #endif
 	clear_fifo(&queue);
-	#ifdef DEBUG
-		fprintf(stderr, "Libero gli array di comunicazione listener-worker\n");
-	#endif
+	// #ifdef DEBUG
+	// 	fprintf(stderr, "Libero gli array di comunicazione listener-worker\n");
+	// #endif
 	free(freefd);
 	free(freefd_ack);
 	// libera tutti i valori inizializzati di fd_to_nickname
-	#ifdef DEBUG
-		fprintf(stderr, "Svuoto fd_to_nickname\n");
-	#endif
+	// #ifdef DEBUG
+	// 	fprintf(stderr, "Svuoto fd_to_nickname\n");
+	// #endif
 	for (int i = 0; i < fdnum; ++i) {
 		if (fd_to_nickname[i] != NULL) {
 			free(fd_to_nickname[i]);
@@ -831,9 +842,9 @@ int main(int argc, char *argv[]) {
 	free(fd_to_nickname);
 	// Non ci sono altri thread oltre a main, quindi nessuno ha il lock
 	pthread_mutex_destroy(&connected_mutex);
-	#ifdef DEBUG
-		fprintf(stderr, "Elimino l'hashtable\n");
-	#endif
+	// #ifdef DEBUG
+	// 	fprintf(stderr, "Elimino l'hashtable\n");
+	// #endif
 	ts_hash_destroy(nickname_htable);
 
 	return 0;
