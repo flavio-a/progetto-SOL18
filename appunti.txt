@@ -36,7 +36,20 @@ ritorna al main, il quale aspetta la fine degli altri threads e poi libera la
 memoria allocata.
 
 Oltre all'hashtable dei nickname c'è una mappa fd->nickname, utilizzata per
-creare l'elenco dei nickname connessi e per gestire le disconnessioni.
+creare l'elenco dei nickname connessi e per gestire le disconnessioni. Questa
+mappa è gestita con un array perché UNIX dovrebbe garantire che l'allocazione
+dei fd avvenga in ordine crescente, quindi fd_to_nickname (la mappa in questione)
+è sempre abbastanza piena (e quindi non c'è motivo di usare strutture dati più
+complesse). La dimensione di fd_to_nickname è MaxConnections + 4: questo,
+insieme alla politica di assegnamento dei fd e al fatto che non possono esserci
+più di MaxConnections contemporaneamente (il listener le rifiuta), garantisce
+che il massimo fd possibile sia MaxConnections + 4 (per stdin, stdout, strerr e
+il socket su cui vengono fatte le accept). In realtà viene fatto il contrario:
+il listener controlla che il nuovo fd sia minore di MaxConnections + 4 e in
+base a quello stabilisce se le connessioni hanno raggiunto il limite. Inoltre
+nel codice tutti i controlli avvengono con MaxConnections (senza +4) perché dato
+che viene usato solo aumentato l'operazione viene fatta una volta per tutte
+all'avvio del server.
 
 In caso di errori durante l'esecuzione di una richiesta (es: REGISTER_OP con
 nickname già esistente) il server disconnette il client.

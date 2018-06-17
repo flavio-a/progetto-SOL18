@@ -34,7 +34,6 @@
 #include "lock.h"
 
 #define NICKNAME_HASH_BUCKETS_N 100000
-#define INITIAL_CONNECTED_SIZE 50
 #define TERMINATION_FD -1
 
 /**
@@ -88,6 +87,7 @@ pthread_mutex_t connected_mutex;
 int ThreadsInPool;
 int MaxMsgSize;
 int MaxFileSize;
+int MaxConnections;
 
 
 /**
@@ -134,15 +134,17 @@ void signal_handler_thread() {
 				fprintf(stderr, "Ricevuto segnale SIGUSR1\n");
 			#endif
 			// temporaneo, per il debug
-			int i;
-			icl_entry_t* j;
-			char* key;
-			nickname_t* val;
-			icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
-				if (val->fd != 0) {
-					fprintf(stderr, "Connesso %s\n", key);
+			#ifdef DEBUG
+				int i;
+				icl_entry_t* j;
+				char* key;
+				nickname_t* val;
+				icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
+					if (val->fd != 0) {
+						fprintf(stderr, "Connesso %s\n", key);
+					}
 				}
-			}
+			#endif
 			// gestire il segnale
 		}
 		if (sig_received == SIGINT || sig_received == SIGTERM || sig_received == SIGQUIT) {
@@ -179,11 +181,11 @@ static void siguser2_handler(int signum) {
  * Gestisce sia le richieste di nuove connessioni, sia i messaggi inviati dai
  * client già connessi
  *
- * @param arg il fd del socket
+ * @param arg Nulla (si può passare NULL)
  */
 void* listener_thread(void* arg) {
-	// Salva l'input
-	int ssfd = *(int*)arg;
+	// Salva il fd del socket
+	int ssfd = fdnum;
 
 	// Smaschera SIGUSR2
 	sigset_t sigset;
@@ -243,25 +245,17 @@ void* listener_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "Richiesta di nuova connessione: %d\n", newfd);
 						#endif
-						FD_SET(newfd, &set);
-						// Non serve la lock prima della lettura perché il listener
-						// è l'unico che modifica fdnum
-						if (newfd > fdnum) {
-							if (newfd > INITIAL_CONNECTED_SIZE) {
-								// Questa lock in realtà serve solo a sincronizzare
-								// il listener e il main in caso di terminazione
-								error_handling_lock(&connected_mutex);
-								fd_to_nickname = realloc(fd_to_nickname, (newfd + 1) * sizeof(char*));
-								for (int i = fdnum; i < newfd; ++i) {
-									fd_to_nickname[i] = NULL;
-								}
-								fdnum = newfd;
-								error_handling_unlock(&connected_mutex);
-							}
-							else {
-								// Niente resize => niente lock
+						// Accetta al massimo MaxConnections dai client
+						if (newfd < MaxConnections) {
+							FD_SET(newfd, &set);
+							// Non serve la lock perché il listener è l'unico che
+							// modifica fdnum
+							if (newfd > fdnum) {
 								fdnum = newfd;
 							}
+						}
+						else {
+							close(newfd);
 						}
 					}
 					else {
@@ -362,7 +356,8 @@ void responseConnectedList(message_t* msg) {
  * @param fd Il fd su cui inviare la risposta.
  * @param res Il messaggio da inviare come risposta.
  * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
- *         false altrimenti). Se ritorna true, ha già disconnesso il client.
+           false altrimenti). Se ritorna true, sendMsgResponse disconnette anche
+		   il client.
  */
 bool sendMsgResponse(int fd, message_t* res) {
 	#ifdef DEBUG
@@ -387,7 +382,8 @@ bool sendMsgResponse(int fd, message_t* res) {
  * @param fd Il fd su cui inviare la risposta.
  * @param res L'header da inviare.
  * @return Il valore da assegnare a fdclose (true se il client si è disconnesso,
- *         false altrimenti). Se ritorna true, ha già disconnesso il client.
+           false altrimenti). Se ritorna true, sendHdrResponse disconnette anche
+           il client.
  */
 bool sendHdrResponse(int fd, message_hdr_t* res) {
 	#ifdef DEBUG
@@ -441,6 +437,19 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 }
 
 /**
+ * @brief Verifica che un messaggio abbia dati corretti.
+ *
+ * @param msg Il messaggio da controllare
+ * @return true se il messaggio è regolare, altrimenti false
+ */
+bool checkMsg(message_t* msg) {
+	if (msg->data.hdr.len == (strlen(msg->data.buf) + 1))
+		return true;
+	else
+		return false;
+}
+
+/**
  * @brief main di un thread worker, che esegue una operazione alla volta
  *
  * I thread worker si mettono in attesa sulla coda condivisa per delle
@@ -458,9 +467,6 @@ void* worker_thread(void* arg) {
 			// Ha ricevuto il fd falso passato dal signal_handler_thread
 			break;
 		}
-		// #ifdef DEBUG
-		// 	fprintf(stderr, "%d: Inizio lavoro su fd %d\n", workerNumber, localfd);
-		// #endif
 		message_t msg;
 		bool fdclose = false;
 		// Le comunicazioni iniziano sempre con un messaggio
@@ -491,6 +497,7 @@ void* worker_thread(void* arg) {
 						fprintf(stderr, "%d: Ricevuta REGISTER_OP\n", workerNumber);
 					#endif
 					if ((sender = ts_hash_insert(nickname_htable, msg.hdr.sender)) == NULL) {
+						// Nickname già esistente
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
@@ -500,6 +507,7 @@ void* worker_thread(void* arg) {
 						fdclose = true;
 					}
 					else {
+						// Situazione normale
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Registrato il nickname \"%s\"\n", workerNumber, msg.hdr.sender);
 						#endif
@@ -519,16 +527,18 @@ void* worker_thread(void* arg) {
 					if ((sender = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
 						error_handling_lock(&(sender->mutex));
 						if (sender->fd != 0) {
+							// Nickname già connesso
 							error_handling_unlock(&(sender->mutex));
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
-							setHeader(&response.hdr, OP_FAIL, "");
+							setHeader(&response.hdr, OP_NICK_CONN, "");
 							if (!sendHdrResponse(localfd, &response.hdr))
 								disconnectClient(localfd);
 							fdclose = true;
 						}
 						else {
+							// Situazione normale
 							error_handling_unlock(&(sender->mutex));
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Connesso \"%s\" (fd %d)\n", workerNumber, msg.hdr.sender, localfd);
@@ -542,6 +552,7 @@ void* worker_thread(void* arg) {
 						}
 					}
 					else {
+						// Nickname inesistente
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
@@ -569,20 +580,34 @@ void* worker_thread(void* arg) {
 					#endif
 					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
-						msg.hdr.op = TXT_MESSAGE;
-						nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
-						add_to_history(receiver, msg);
-						error_handling_lock(&(receiver->mutex));
-						if (receiver->fd > 0) {
-							// Non fa gestione dell'errore perché se non riesce
-							// ad inviare è un problema del client, il server se
-							// lo tiene nell'history e poi sarà il client a
-							// chiedergli di nuovo il messaggio.
-							sendRequest(receiver->fd, &msg);
+						// Client regolare
+						if (!checkMsg(&msg)) {
+							// Messaggio invalido
+							setHeader(&response.hdr, OP_MSG_INVALID, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
 						}
-						error_handling_unlock(&(receiver->mutex));
-						setHeader(&response.hdr, OP_OK, "");
-						fdclose = sendHdrResponse(localfd, &response.hdr);
+						else if (msg.data.hdr.len > MaxMsgSize) {
+							// Messaggio troppo lungo
+							setHeader(&response.hdr, OP_MSG_TOOLONG, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
+						else {
+							// Situazione normale
+							msg.hdr.op = TXT_MESSAGE;
+							nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+							add_to_history(receiver, msg);
+							error_handling_lock(&(receiver->mutex));
+							if (receiver->fd > 0) {
+								// Non fa gestione dell'errore perché se non
+								// riesce ad inviare è un problema del client,
+								// il server se lo tiene nell'history e poi sarà
+								// il client a chiedergli di nuovo il messaggio.
+								sendRequest(receiver->fd, &msg);
+							}
+							error_handling_unlock(&(receiver->mutex));
+							setHeader(&response.hdr, OP_OK, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
 					}
 				}
 				break;
@@ -592,6 +617,7 @@ void* worker_thread(void* arg) {
 					#endif
 					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
+						// Client regolare, situazione normale
 						setHeader(&response.hdr, OP_OK, "");
 						error_handling_lock(&(sender->mutex));
 						size_t nmsgs = history_len(sender);
@@ -617,21 +643,30 @@ void* worker_thread(void* arg) {
 					#endif
 					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
-						msg.hdr.op = TXT_MESSAGE;
-						int i;
-						icl_entry_t* j;
-						char* key;
-						nickname_t* val;
-						icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
-							add_to_history(val, msg);
-							error_handling_lock(&(val->mutex));
-							if (val->fd > 0) {
-								sendRequest(val->fd, &msg);
-							}
-							error_handling_unlock(&(val->mutex));
+						// Client regolare
+						if (!checkMsg(&msg)) {
+							// Messaggio invalido
+							setHeader(&response.hdr, OP_MSG_INVALID, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
 						}
-						setHeader(&response.hdr, OP_OK, "");
-						fdclose = sendHdrResponse(localfd, &response.hdr);
+						else {
+							// Situazione normale
+							msg.hdr.op = TXT_MESSAGE;
+							int i;
+							icl_entry_t* j;
+							char* key;
+							nickname_t* val;
+							icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
+								add_to_history(val, msg);
+								error_handling_lock(&(val->mutex));
+								if (val->fd > 0) {
+									sendRequest(val->fd, &msg);
+								}
+								error_handling_unlock(&(val->mutex));
+							}
+							setHeader(&response.hdr, OP_OK, "");
+							fdclose = sendHdrResponse(localfd, &response.hdr);
+						}
 					}
 				}
 				break;
@@ -675,6 +710,10 @@ void* worker_thread(void* arg) {
  * esegue la funzione signal_handler_thread per gestire i segnali
  */
 int main(int argc, char *argv[]) {
+	// Assert su una costante globale
+	assert(TERMINATION_FD < 0);
+	assert(NULL == 0);
+
 	// Lettura dell'argomento
 	if (argc <= 1 || strncmp(argv[1], "-f", 2) != 0) {
 		usage(argv[0]);
@@ -699,7 +738,7 @@ int main(int argc, char *argv[]) {
 	int MaxHistMsgs = 16;
 	MaxMsgSize = 512;
 	MaxFileSize = 1024;
-	int MaxConnections = 32;
+	MaxConnections = 32;
 	char* UnixPath = "/tmp/chatty_socket";
 	char* DirName = "/tmp/chatty";
 	char* StatFileName = "/tmp/chatty_stats.txt";
@@ -737,19 +776,18 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Crea le strutture condivise
-	int listener_param;
+	MaxConnections += 4; // Serve solo aumentata
 	queue = create_fifo();
 	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
 	fdnum = createSocket(UnixPath);
+	assert(MaxConnections > fdnum);
 	pthread_t pool[ThreadsInPool];
 	freefd = malloc(ThreadsInPool * sizeof(int));
 	freefd_ack = calloc(ThreadsInPool, sizeof(char));
 	pthread_mutex_init(&connected_mutex, NULL);
-	assert(INITIAL_CONNECTED_SIZE >= fdnum);
-	assert(TERMINATION_FD < 0);
-	fd_to_nickname = calloc(INITIAL_CONNECTED_SIZE + 1 , sizeof(char*));
+	fd_to_nickname = calloc(MaxConnections, sizeof(char*));
 	// Crea i vari thread
-	pthread_create(&listener, NULL, &listener_thread, &listener_param);
+	pthread_create(&listener, NULL, &listener_thread, NULL);
 	for (unsigned int i = 0; i < ThreadsInPool; ++i) {
 		// ricicla lo spazio di freefd per passare ai worker il loro numero
 		freefd[i] = i;
@@ -763,16 +801,28 @@ int main(int argc, char *argv[]) {
 	// segnati in man pthread_join non possono verificarsi in questi casi)
 	pthread_join(listener, NULL);
 	for (unsigned int i = 0; i < ThreadsInPool; ++i) {
-		pthread_join(pool + i, NULL);
+		pthread_join(pool[i], NULL);
 	}
 
 	// Elimina il socket
+	#ifdef DEBUG
+		fprintf(stderr, "Unlink del socket\n");
+	#endif
 	unlink(UnixPath);
 	// Libera la memoria che ha occupato all'inizio del programma
+	#ifdef DEBUG
+		fprintf(stderr, "Cancello la coda condivisa\n");
+	#endif
 	clear_fifo(&queue);
+	#ifdef DEBUG
+		fprintf(stderr, "Libero gli array di comunicazione listener-worker\n");
+	#endif
 	free(freefd);
 	free(freefd_ack);
 	// libera tutti i valori inizializzati di fd_to_nickname
+	#ifdef DEBUG
+		fprintf(stderr, "Svuoto fd_to_nickname\n");
+	#endif
 	for (int i = 0; i < fdnum; ++i) {
 		if (fd_to_nickname[i] != NULL) {
 			free(fd_to_nickname[i]);
@@ -781,6 +831,9 @@ int main(int argc, char *argv[]) {
 	free(fd_to_nickname);
 	// Non ci sono altri thread oltre a main, quindi nessuno ha il lock
 	pthread_mutex_destroy(&connected_mutex);
+	#ifdef DEBUG
+		fprintf(stderr, "Elimino l'hashtable\n");
+	#endif
 	ts_hash_destroy(nickname_htable);
 
 	return 0;
