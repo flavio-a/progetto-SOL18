@@ -6,6 +6,7 @@
 .fuse_*
 doc/
 *.o
+libchatty.a
 README.txt
 README.doxygen
 chatterbox18.pdf
@@ -17,4 +18,3 @@ chatterbox18.pdf
 #testgroups.sh
 #testleaks.sh
 #teststress.sh
-

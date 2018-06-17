@@ -58,18 +58,23 @@ TARGETS		= chatty \
 
 
 # aggiungere qui i file oggetto da compilare
-OBJECTS		=
+OBJECTS		= connections.o \
+			  message.o \
+			  lock.o \
+			  fifo.o \
+			  icl_hash.o \
+			  hashtable.o
 
 # aggiungere qui gli altri include
-INCLUDE_FILES = connections.c \
-				message.c \
+INCLUDE_FILES = connections.h \
+				message.h \
 				ops.h \
 				stats.h \
 				config.h \
-				lock.c \
-				fifo.c \
-				icl_hash.c \
-				hashtable.c
+				lock.h \
+				fifo.h \
+				icl_hash.h \
+				hashtable.h
 
 .PHONY: all clean cleanall doc test1 test2 test3 test4 test5 consegna
 .SUFFIXES: .c .h
@@ -101,7 +106,7 @@ SPECIAL_TESTS = connections
 .PHONY: cleantest $(addprefix runtest, $(TESTS))
 
 # si potrebbe evitare l'addprefix iniziale, ma così la shell autocompleta
-$(addprefix test, $(TESTS)): test%: test%.c $(INCLUDE_FILES)
+$(addprefix test, $(TESTS)): test%: test%.c libchatty.a $(INCLUDE_FILES)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) $(LDFLAGS) $(LIBS) -o $@ $^
 
 $(addprefix runtest, $(filter-out $(SPECIAL_TESTS),$(TESTS))): runtest%: test%
@@ -110,6 +115,7 @@ $(addprefix runtest, $(filter-out $(SPECIAL_TESTS),$(TESTS))): runtest%: test%
 
 runtestconnections: testconnections
 	(./$< server ; echo $$?) &
+	sleep 1
 	./$< client
 	@echo "********** Test superato"
 

@@ -88,6 +88,11 @@ succedere solo se l'fd è stato chiuso dal worker che lo stava gestendo prima.
 Ci sono casi in cui un thread acquisisce sia connected_mutex che la mutex di un
 nickname_t. Per evitare deadlock, connected_mutex viene sempre acquisita prima.
 
+Le statistiche posso farle sceme perché tanto il test è debole: se uno chiede la
+sua history aumenta i messaggi consegnati di hist_size. Messaggi non consegnati
+invece aumenta ogni volta che il tizio a cui devo inviare non è connesso, e non
+cala mai.
+
 La politica lettori-scrittori è gestita così:
 * lettore:
     per entrare:

@@ -655,7 +655,7 @@ void* worker_thread(void* arg) {
 							int i;
 							icl_entry_t* j;
 							char* key;
-							nickname_t.* val;
+							nickname_t* val;
 							char* original_buffer = msg.data.buf;
 							icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
 								// Copia il buffer perché ogni history può

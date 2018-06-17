@@ -1,12 +1,12 @@
-- KNOWN BUG: se un messaggio POSTTXTALL_OP viene sovrascritto in due history
-  diverse quando termino il programma con ctrl+C crasha
-- capire cosa fare con i messaggi inviati a tutti e la history
 - implementare la gestione delle varie operazioni:
   - UNREGISTER_OP
   - DISCONNECT_OP
   - POSTFILE_OP
   - GETFILE_OP
+- gestire SIGUSR1 e le statistiche
+- scrivere lo script bash
 - ricontrollare tutti i memory leak rimasti in giro. In particolare:
   - deallocare tutte le mutex allocate in giro
 - ricontrollare tutte le sincronizzazioni e gli usi delle variabili condivise
 - cercare una libreria per parsare il file di configurazione
+- ricontrollare tutto il codice per il formato richiesto (soprattutto commenti)
