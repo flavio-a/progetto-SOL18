@@ -407,7 +407,11 @@ bool sendHdrResponse(int fd, message_hdr_t* res) {
  * richieste che richiedono di essere connessi.
  * Se il client non è "regolare" gli invia la risposta di fallimento.
  *
- * @param nick Il nickname
+ * Per client regolare si intende un client con un nickname registrato che manda
+ * richieste dal fd su cui è stata fatta una CONNECT_OP con quel nickname. Per
+ * nickname del client si intende quello ricevuto come msg.hdr.sender.
+ *
+ * @param nick Il nickname da cui arriva la richiesta (msg.hdr.sender)
  * @param fd Il fd da cui arriva la richiesta
  * @param nick_data Il nickname_t associato al nickname passato
  * @return true se il client è regolare, altrimenti false
@@ -520,6 +524,26 @@ void* worker_thread(void* arg) {
 					}
 				}
 				break;
+				case UNREGISTER_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta UNREGISTER_OP\n", workerNumber);
+					#endif
+					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					if (!fdclose) {
+						// Client regolare
+						#ifdef DEBUG
+							fprintf(stderr, "%d: Deregistro il nickname \"%s\"\n", workerNumber, msg.hdr.sender);
+						#endif
+						setHeader(&response.hdr, OP_OK, "");
+						sendHdrResponse(localfd, &response.hdr);
+						// Un client che deregistra un nick non può restare
+						// connesso con quel nickname
+						disconnectClient(localfd);
+						fdclose = true;
+						ts_hash_remove(nickname_htable, msg.hdr.sender);
+					}
+				}
+				break;
 				case CONNECT_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta CONNECT_OP\n", workerNumber);
@@ -563,6 +587,15 @@ void* worker_thread(void* arg) {
 					}
 				}
 				break;
+				case DISCONNECT_OP: {
+					#ifdef DEBUG
+						fprintf(stderr, "%d: Ricevuta DISCONNECT_OP\n", workerNumber);
+						fprintf(stderr, "%d: Disconnessione fd %d (\"%s\")\n", workerNumber, localfd, fd_to_nickname[localfd]);
+					#endif
+					disconnectClient(localfd);
+					fdclose = true;
+				}
+				break;
 				case USRLIST_OP: {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta USRLIST_OP\n", workerNumber);
@@ -592,21 +625,28 @@ void* worker_thread(void* arg) {
 							fdclose = sendHdrResponse(localfd, &response.hdr);
 						}
 						else {
-							// Situazione normale
-							msg.hdr.op = TXT_MESSAGE;
 							nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
-							add_to_history(receiver, msg);
-							error_handling_lock(&(receiver->mutex));
-							if (receiver->fd > 0) {
-								// Non fa gestione dell'errore perché se non
-								// riesce ad inviare è un problema del client,
-								// il server se lo tiene nell'history e poi sarà
-								// il client a chiedergli di nuovo il messaggio.
-								sendRequest(receiver->fd, &msg);
+							if (receiver == NULL) {
+								// Destinatario inesistente
+								setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
 							}
-							error_handling_unlock(&(receiver->mutex));
-							setHeader(&response.hdr, OP_OK, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
+							else {
+								// Situazione normale
+								msg.hdr.op = TXT_MESSAGE;
+								add_to_history(receiver, msg);
+								error_handling_lock(&(receiver->mutex));
+								if (receiver->fd > 0) {
+									// Non fa gestione dell'errore perché se non
+									// riesce ad inviare è un problema del client,
+									// il server se lo tiene nell'history e poi sarà
+									// il client a chiedergli di nuovo il messaggio.
+									sendRequest(receiver->fd, &msg);
+								}
+								error_handling_unlock(&(receiver->mutex));
+								setHeader(&response.hdr, OP_OK, "");
+								fdclose = sendHdrResponse(localfd, &response.hdr);
+							}
 						}
 					}
 				}

@@ -1,6 +1,4 @@
 - implementare la gestione delle varie operazioni:
-  - UNREGISTER_OP
-  - DISCONNECT_OP
   - POSTFILE_OP
   - GETFILE_OP
 - gestire SIGUSR1 e le statistiche

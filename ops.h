@@ -57,10 +57,11 @@ typedef enum {
     OP_NICK_UNKNOWN = 27,  // nickname non riconosciuto
     OP_MSG_TOOLONG  = 28,  // messaggio con size troppo lunga
     OP_NO_SUCH_FILE = 29,  // il file richiesto non esiste
-    
+
     // alias se no il client di prova non capisce niente
     OP_NICK_CONN    = OP_FAIL, // nickname già connesso su un altro fd
     OP_MSG_INVALID  = OP_FAIL, // messaggio invalido secondo il server
+    OP_DEST_UNKNOWN = OP_FAIL, // destinatario sconosciuto
 
 
     /*
