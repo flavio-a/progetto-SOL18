@@ -41,6 +41,7 @@
 #define NICKNAME_HASH_BUCKETS_N 100000
 #define TERMINATION_FD -1
 #define FILE_SIZE_FACTOR 1024
+#define CONFIG_LINE_LENGTH 1024
 
 /**
  * Struttura che memorizza le statistiche del server, struct statistics
@@ -91,11 +92,13 @@ pthread_mutex_t connected_mutex;
  * Costanti globali lette dal file di configurazione
  */
 int ThreadsInPool;
+int MaxHistMsgs;
 int MaxMsgSize;
 int MaxFileSize;
 int MaxConnections;
 char* DirName;
 char* StatFileName;
+char* UnixPath;
 
 /**
  * @brief Funzione che spiega l'utilizzo del server
@@ -971,6 +974,7 @@ void* worker_thread(void* arg) {
 	return NULL;
 }
 
+
 /**
  * @function main
  * @brief Punto di ingresso del server
@@ -1005,15 +1009,78 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Parsing del file di configurazione
-	// TODO: cercare una libreria che lo faccia per me
-	ThreadsInPool = 8;
-	int MaxHistMsgs = 16;
-	MaxMsgSize = 512;
-	MaxFileSize = 1024;
-	MaxConnections = 32;
-	char* UnixPath = "/tmp/chatty_socket";
-	DirName = "/tmp/chatty";
-	StatFileName = "/tmp/chatty_stats.txt";
+	char* line = malloc(CONFIG_LINE_LENGTH * sizeof(char));
+	while (true) { // Uscita dal break interno
+		if (fgets(line, CONFIG_LINE_LENGTH, conf_file) == NULL) {
+			if (feof(conf_file)) {
+				break;
+			}
+			// Linea di configurazione troppo lunga
+			perror("leggendo il file di configurazione, linea troppo lunga");
+			exit(-1);
+		}
+		// Controlla i commenti
+		if (line[0] != '#') {
+			char* paramName = strtok(line, " \n	");
+			char* equalSign = strtok(NULL, " \n	");
+			char* paramValue = strtok(NULL, " \n	");
+			// Controlla le linee che non sono parametri
+			if (paramName != NULL && paramName[0] != '\n' && equalSign[0] == '=' && equalSign[1] == '\0') {
+				if (strncmp(paramName, "ThreadsInPool", 14) == 0) {
+					ThreadsInPool = strtol(paramValue, NULL, 10);
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto ThreadsInPool: %d\n", ThreadsInPool);
+					#endif
+				}
+				else if (strncmp(paramName, "MaxHistMsgs", 12) == 0) {
+					MaxHistMsgs = strtol(paramValue, NULL, 10);
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto MaxHistMsgs: %d\n", MaxHistMsgs);
+					#endif
+				}
+				else if (strncmp(paramName, "MaxMsgSize", 11) == 0) {
+					MaxMsgSize = strtol(paramValue, NULL, 10);
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto MaxMsgSize: %d\n", MaxMsgSize);
+					#endif
+				}
+				else if (strncmp(paramName, "MaxFileSize", 12) == 0) {
+					MaxFileSize = strtol(paramValue, NULL, 10);
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto MaxFileSize: %d\n", MaxFileSize);
+					#endif
+				}
+				else if (strncmp(paramName, "MaxConnections", 15) == 0) {
+					MaxConnections = strtol(paramValue, NULL, 10);
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto MaxConnections: %d\n", MaxConnections);
+					#endif
+				}
+				else if (strncmp(paramName, "UnixPath", 9) == 0) {
+					UnixPath = malloc(strlen(paramValue) * sizeof(char));
+					strncpy(UnixPath, paramValue, strlen(paramValue));
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto UnixPath: %s\n", UnixPath);
+					#endif
+				}
+				else if (strncmp(paramName, "DirName", 8) == 0) {
+					DirName = malloc(strlen(paramValue) * sizeof(char));
+					strncpy(DirName, paramValue, strlen(paramValue));
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto DirName: %s\n", DirName);
+					#endif
+				}
+				else if (strncmp(paramName, "StatFileName", 13) == 0) {
+					StatFileName = malloc(strlen(paramValue) * sizeof(char));
+					strncpy(StatFileName, paramValue, strlen(paramValue));
+					#if defined DEBUG && defined VERBOSE
+						fprintf(stderr, "Letto StatFileName: %s\n", StatFileName);
+					#endif
+				}
+			}
+		}
+	}
+	free(line);
 
 	fclose(conf_file);
 

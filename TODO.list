@@ -4,5 +4,5 @@
 - ricontrollare tutti i memory leak rimasti in giro. In particolare:
   - deallocare tutte le mutex allocate in giro
 - ricontrollare tutte le sincronizzazioni e gli usi delle variabili condivise
-- cercare una libreria per parsare il file di configurazione
+- scrivere qualcosa di più sensato per leggere il file di configurazione
 - ricontrollare tutto il codice per il formato richiesto (soprattutto commenti)
