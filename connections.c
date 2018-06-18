@@ -14,7 +14,7 @@ int createSocket(char* path) {
 	// create server socket
 	int ssfd;
 	struct sockaddr_un sa;
-	strncpy(sa.sun_path, path, UNIX_PATH_MAX);
+	strncpy(sa.sun_path, path, strlen(path) + 1 < UNIX_PATH_MAX ? strlen(path) + 1 : UNIX_PATH_MAX);
 	sa.sun_family = AF_UNIX;
 	if ((ssfd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
 		perror("Creating socket");

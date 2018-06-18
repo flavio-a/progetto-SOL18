@@ -60,11 +60,14 @@ int ts_hash_destroy(htable_t* ht);
 
 /**
  * @brief Cerca una chiave nell'hashtable
+ *
+ * Questa funzione non è sincronizzata.
+ *
  * @param ht L'hashtable in cui cercare la chiave
  * @param key La chiave da cercare
  * @return Il puntatore al valore se la chiave è presente, altrimenti NULL
  */
-nickname_t* ts_hash_find(htable_t* ht, char* key);
+nickname_t* hash_find(htable_t* ht, char* key);
 
 /**
  * @brief Thread-safe insert. Se la chiave è già presente, non fa nulla.

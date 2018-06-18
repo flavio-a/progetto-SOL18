@@ -234,6 +234,8 @@ void* listener_thread(void* arg) {
 	// Installa l'handler per SIGUSR2
 	struct sigaction sigusr2_action;
 	sigusr2_action.sa_handler = &siguser2_handler;
+	sigemptyset(&sigusr2_action.sa_mask);
+	sigusr2_action.sa_flags = 0;
 	if (sigaction(SIGUSR2, &sigusr2_action, NULL) < 0) {
 		perror("installando l'handler per SIGUSR2");
 		exit(EXIT_FAILURE);
@@ -335,7 +337,7 @@ void disconnectClient(int fd) {
 	#ifdef DEBUG
 		fprintf(stderr, "Un client si è disconnesso (fd %d, nick \"%s\") :c\n", fd, fd_to_nickname[fd]);
 	#endif
-	nickname_t* client = ts_hash_find(nickname_htable, fd_to_nickname[fd]);
+	nickname_t* client = hash_find(nickname_htable, fd_to_nickname[fd]);
 	error_handling_lock(&(client->mutex));
 	client->fd = 0;
 	error_handling_unlock(&(client->mutex));
@@ -517,6 +519,7 @@ void* worker_thread(void* arg) {
 			break;
 		}
 		message_t msg;
+		msg.data.buf = NULL;
 		bool fdclose = false;
 		// Le comunicazioni iniziano sempre con un messaggio
 		int readResult = readMsg(localfd, &msg);
@@ -574,7 +577,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta UNREGISTER_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare
 						#ifdef DEBUG
@@ -594,7 +597,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta CONNECT_OP\n", workerNumber);
 					#endif
-					if ((sender = ts_hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
+					if ((sender = hash_find(nickname_htable, msg.hdr.sender)) != NULL) {
 						error_handling_lock(&(sender->mutex));
 						if (sender->fd != 0) {
 							// Nickname già connesso
@@ -659,7 +662,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta POSTTXT_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare
 						if (!checkMsg(&msg)) {
@@ -675,7 +678,7 @@ void* worker_thread(void* arg) {
 							++chattyStats.nerrors;
 						}
 						else {
-							nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+							nickname_t* receiver = hash_find(nickname_htable, msg.data.hdr.receiver);
 							if (receiver == NULL) {
 								// Destinatario inesistente
 								setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
@@ -699,6 +702,8 @@ void* worker_thread(void* arg) {
 									++chattyStats.nnotdelivered;
 								}
 								error_handling_unlock(&(receiver->mutex));
+								// Mette a NULL in modo che non venga deallocato
+								msg.data.buf = NULL;
 								setHeader(&response.hdr, OP_OK, "");
 								fdclose = sendHdrResponse(localfd, &response.hdr);
 							}
@@ -710,7 +715,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 					fprintf(stderr, "%d: Ricevuta POSTTXTALL_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare
 						if (!checkMsg(&msg)) {
@@ -748,7 +753,7 @@ void* worker_thread(void* arg) {
 								}
 								error_handling_unlock(&(val->mutex));
 							}
-							free(original_buffer);
+							msg.data.buf = original_buffer;
 							setHeader(&response.hdr, OP_OK, "");
 							fdclose = sendHdrResponse(localfd, &response.hdr);
 						}
@@ -759,7 +764,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta GETPREVMSGS_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, sender = hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare, situazione normale
 						setHeader(&response.hdr, OP_OK, "");
@@ -785,10 +790,10 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta POSTFILE_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare
-						nickname_t* receiver = ts_hash_find(nickname_htable, msg.data.hdr.receiver);
+						nickname_t* receiver = hash_find(nickname_htable, msg.data.hdr.receiver);
 						if (receiver == NULL) {
 							// Destinatario inesistente
 							setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
@@ -800,10 +805,10 @@ void* worker_thread(void* arg) {
 							// Crea e apre il file (così se succedono errori può
 							// esplodere subito)
 							message_data_t file;
-							char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
+							file.buf = NULL;
+							char* full_filename = malloc(strlen(DirName) + msg.data.hdr.len);
 							strncpy(full_filename, DirName, strlen(DirName));
-							full_filename[strlen(DirName)] = '/';
-							strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
+							strncpy(full_filename + strlen(DirName), msg.data.buf, msg.data.hdr.len);
 							#ifdef DEBUG
 								fprintf(stderr, "%d: salvo il file \"%s\"\n", workerNumber, full_filename);
 							#endif
@@ -855,10 +860,16 @@ void* worker_thread(void* arg) {
 										++chattyStats.nfilenotdelivered;
 									}
 									error_handling_unlock(&(receiver->mutex));
+									// Mette a NULL in modo che non venga deallocato
+									msg.data.buf = NULL;
 									setHeader(&response.hdr, OP_OK, "");
 									fdclose = sendHdrResponse(localfd, &response.hdr);
 								}
 								close(MaxConnections + workerNumber);
+								free(full_filename);
+								if (file.buf != NULL) {
+									free(file.buf);
+								}
 							}
 						}
 					}
@@ -868,16 +879,15 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta GETFILE_OP\n", workerNumber);
 					#endif
-					fdclose = !checkConnected(msg.hdr.sender, localfd, ts_hash_find(nickname_htable, msg.hdr.sender));
+					fdclose = !checkConnected(msg.hdr.sender, localfd, hash_find(nickname_htable, msg.hdr.sender));
 					if (!fdclose) {
 						// Client regolare
-						char* mappedfile;
+						char* mappedfile = NULL;
 						struct stat st;
 						// Apre il file
-						char* full_filename = malloc(strlen(DirName) + 1 + msg.data.hdr.len);
+						char* full_filename = malloc(strlen(DirName) + msg.data.hdr.len);
 						strncpy(full_filename, DirName, strlen(DirName));
-						full_filename[strlen(DirName)] = '/';
-						strncpy(full_filename + strlen(DirName) + 1, msg.data.buf, msg.data.hdr.len);
+						strncpy(full_filename + strlen(DirName), msg.data.buf, msg.data.hdr.len);
 						#ifdef DEBUG
 							fprintf(stderr, "%d: apro il file \"%s\"\n", workerNumber, full_filename);
 						#endif
@@ -936,6 +946,13 @@ void* worker_thread(void* arg) {
 								++chattyStats.nfiledelivered;
 							}
 							close(MaxConnections + workerNumber);
+							free(full_filename);
+							if (mappedfile != NULL) {
+								if (munmap(mappedfile, st.st_size) < 0) {
+									perror("errore durante munmap del file");
+									exit(EXIT_FAILURE);
+								}
+							}
 						}
 					}
 				}
@@ -951,6 +968,9 @@ void* worker_thread(void* arg) {
 				}
 				break;
 			}
+		}
+		if (msg.data.buf != NULL) {
+			free(msg.data.buf);
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero
 		// se non ha chiuso la connessione
@@ -1052,27 +1072,31 @@ int main(int argc, char *argv[]) {
 				}
 				else if (strncmp(paramName, "MaxConnections", 15) == 0) {
 					MaxConnections = strtol(paramValue, NULL, 10);
+					MaxConnections += 4; // Serve solo aumentata
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxConnections: %d\n", MaxConnections);
 					#endif
 				}
 				else if (strncmp(paramName, "UnixPath", 9) == 0) {
-					UnixPath = malloc(strlen(paramValue) * sizeof(char));
-					strncpy(UnixPath, paramValue, strlen(paramValue));
+					UnixPath = malloc((strlen(paramValue) + 1) * sizeof(char));
+					strncpy(UnixPath, paramValue, strlen(paramValue) + 1);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto UnixPath: %s\n", UnixPath);
 					#endif
 				}
 				else if (strncmp(paramName, "DirName", 8) == 0) {
-					DirName = malloc(strlen(paramValue) * sizeof(char));
+					DirName = malloc((strlen(paramValue) + 2) * sizeof(char));
 					strncpy(DirName, paramValue, strlen(paramValue));
+					// Serve solo con lo / finale
+					DirName[strlen(paramValue)] = '/';
+					DirName[strlen(paramValue) + 1] = '\0';
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto DirName: %s\n", DirName);
 					#endif
 				}
 				else if (strncmp(paramName, "StatFileName", 13) == 0) {
-					StatFileName = malloc(strlen(paramValue) * sizeof(char));
-					strncpy(StatFileName, paramValue, strlen(paramValue));
+					StatFileName = malloc((strlen(paramValue) + 1) * sizeof(char));
+					strncpy(StatFileName, paramValue, strlen(paramValue) + 1);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto StatFileName: %s\n", StatFileName);
 					#endif
@@ -1115,7 +1139,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Crea le strutture condivise
-	MaxConnections += 4; // Serve solo aumentata
 	queue = create_fifo();
 	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
 	fdnum = createSocket(UnixPath);

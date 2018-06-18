@@ -1,5 +1,5 @@
 /**
- * @file hashtable.h
+ * @file nickname.h
  * @brief Libreria per la struttura dati nickname_t, elementi dell'hashtable dei
           nickname.
  */

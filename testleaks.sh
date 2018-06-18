@@ -41,7 +41,7 @@ pid2=$!
 
 ./client -l $1 -k paperino -p -S "aaaaaaaaaaaaaaaaaaaaaaaaaaa":minni -S "bbbbbbbbbbbbbbbbb":pluto -S "ccccccccccccccccc": -S "ddddddddddddddddddddd":topolino -s ./libchatty.a:minni
 
-./client -l $1 -k pippo -p -s listener.o:minni
+./client -l $1 -k pippo -p -s fifo.o:minni
 
 # invio il segnale per generare le statistiche
 kill -USR1 $pid

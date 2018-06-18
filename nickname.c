@@ -1,5 +1,5 @@
 /**
- * @file hashtable.c
+ * @file nickname.c
  * @brief Implementazione di nickname.h
  */
 

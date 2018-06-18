@@ -21,17 +21,16 @@ htable_t* hash_create(int nbuckets, int history_size) {
 }
 
 int ts_hash_destroy(htable_t* ht) {
-	// TODO (opt): togliere la sincronizzazione
 	error_handling_lock(&(ht->mutex));
 	int res = icl_hash_destroy(ht->htable, &free, &free_nickname_t);
-	if (res == 0)
-		free(ht);
 	error_handling_unlock(&(ht->mutex));
 	pthread_mutex_destroy(&(ht->mutex));
+	if (res == 0)
+		free(ht);
 	return res;
 }
 
-nickname_t* ts_hash_find(htable_t* ht, char* key) {
+nickname_t* hash_find(htable_t* ht, char* key) {
 	return (nickname_t*)icl_hash_find(ht->htable, (void*)key);
 }
 
