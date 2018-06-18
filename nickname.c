@@ -48,7 +48,7 @@ void add_to_history(nickname_t* nick, message_t msg) {
 	if (is_history_full(nick)) {
 		// devo liberare la memoria occupata dal vecchio messaggio
 		if (nick->history[nick->first].data.buf != NULL) {
-			#ifdef DEBUG
+			#if defined DEBUG && defined VERBOSE
 				fprintf(stderr, "HTABLE: Libero il buffer sovrascrivendo la history %p\n", nick->history[nick->first].data.buf);
 			#endif
 			free(nick->history[nick->first].data.buf);

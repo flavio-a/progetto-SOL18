@@ -90,9 +90,11 @@ Ci sono casi in cui un thread acquisisce sia connected_mutex che la mutex di un
 nickname_t. Per evitare deadlock, connected_mutex viene sempre acquisita prima.
 
 Le statistiche posso farle sceme perché tanto il test è debole: se uno chiede la
-sua history aumenta i messaggi consegnati di hist_size. Messaggi non consegnati
-invece aumenta ogni volta che il tizio a cui devo inviare non è connesso, e non
-cala mai.
+sua history non aumenta i messaggi consegnati. Messaggi non consegnati invece
+aumenta ogni volta che il tizio a cui devo inviare non è connesso, e non cala
+mai. Gli errori aumentano ogni volta che il server risponde picche ad un client:
+non crescono se nel server esplode qualcosa ma non viene risposto male al
+client, non crescono se il client chiude la connessione di violenza.
 
 Nonostante quello che fa il client di prova, il server permette UNREGISTER_OP
 solo per deregistrare il nickname con cui si è connessi.

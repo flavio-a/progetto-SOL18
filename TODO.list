@@ -1,9 +1,5 @@
-- far gestire la dimensione massima dei file ai worker
 - probabilmente serve sincronizzare l'utilizzo degli fd dei client (si possono
   usare le mutex della nickname_htable?)
-- implementare la gestione delle varie operazioni:
-  - GETFILE_OP
-- gestire SIGUSR1 e le statistiche
 - scrivere lo script bash
 - ricontrollare tutti i memory leak rimasti in giro. In particolare:
   - deallocare tutte le mutex allocate in giro

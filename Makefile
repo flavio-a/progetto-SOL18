@@ -51,6 +51,8 @@ LIBS		= -pthread
 
 # commentare questa riga per evitare il debug
 CFLAGS		+= -DDEBUG
+# commentare questa riga per evitare il debug verboso
+# CFLAGS		+= -DVERBOSE
 
 # aggiungere qui altri targets se necessario
 TARGETS		= chatty \
