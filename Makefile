@@ -50,7 +50,7 @@ OPTFLAGS	= -O2
 LIBS		= -pthread
 
 # commentare questa riga per evitare il debug
-CFLAGS		+= -DDEBUG
+# CFLAGS		+= -DDEBUG
 # commentare questa riga per evitare il debug verboso
 # CFLAGS		+= -DVERBOSE
 

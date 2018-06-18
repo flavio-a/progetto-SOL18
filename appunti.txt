@@ -132,3 +132,13 @@ che queste permettono di superare altri thread in coda con precedenza maggiore
 della propria. Dato però che le riattivazioni spurie dovrebbero essere rare,
 questo non dovrebbe comunque causare problemi tangibili all'esecuzione del
 programma (soluzione dello struzzo per i deadlock).
+
+Cose da dire ai docenti:
+* il loro client fa schifo.
+* 50 come MaxFileSize in chatty.conf2 a me non funziona perché ./client è più
+  grosso di 50.
+* quando stampa in caso di risposta di errore c'è
+  if (msg.data.buf) fprintf(stderr, "Operazione %d FALLITA: %s\n", op, msg.data.buf);
+  che non è mai vero dato che prima fanno readHdr, quindi msg.data non viene letto
+* testleaks non funziona perché cerca di inviare un file "listener.o" che non
+  ho creato
