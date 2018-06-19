@@ -4,7 +4,14 @@
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
  *
+ * Si dichiara che parte del contenuto di questo file (la documentazione) è
+ * opera originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #ifndef MESSAGE_H_
 #define MESSAGE_H_
 

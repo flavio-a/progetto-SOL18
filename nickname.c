@@ -1,6 +1,13 @@
 /**
  * @file nickname.c
  * @brief Implementazione di nickname.h
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
 
 #include "nickname.h"
@@ -22,10 +29,10 @@ nickname_t* create_nickname(int history_size) {
 	return res;
 }
 
-void free_nickname_t(void* val) {
+void free_nickname(void* val) {
 	nickname_t* tmp = (nickname_t*)val;
 	error_handling_lock(&(tmp->mutex));
-	// Free del contenuto dei messaggi
+	// Free della history
 	int i;
 	message_t* msg;
 	history_foreach(tmp, i, msg) {
@@ -43,7 +50,6 @@ bool is_history_full(nickname_t* nick) {
 
 void add_to_history(nickname_t* nick, message_t msg) {
 	// aggiunta alla coda circolare: aumento l'indice di testa e sostituisco
-	error_handling_lock(&(nick->mutex));
 	nick->first = ((nick->first) + 1) % nick->hist_size;
 	if (is_history_full(nick)) {
 		// devo liberare la memoria occupata dal vecchio messaggio
@@ -55,7 +61,6 @@ void add_to_history(nickname_t* nick, message_t msg) {
 		}
 	}
 	nick->history[nick->first] = msg;
-	error_handling_unlock(&(nick->mutex));
 }
 
 int history_len(nickname_t* nick) {
@@ -63,15 +68,4 @@ int history_len(nickname_t* nick) {
 		return nick->hist_size;
 	else
 		return nick->first + 1;
-}
-
-bool search_file_history(nickname_t* nick, char* name) {
-	int i;
-	message_t* msg;
-	history_foreach(nick, i, msg) {
-		if (msg->hdr.op == POSTFILE_OP && strncmp(msg->data.buf, name, msg->data.hdr.len) == 0) {
-			return true;
-		}
-	}
-	return false;
 }

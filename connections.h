@@ -4,7 +4,15 @@
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
  *
+ *
+ * Si dichiara che parte del contenuto di questo file (la documentazione) è
+ * opera originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #ifndef CONNECTIONS_H_
 #define CONNECTIONS_H_
 
@@ -40,9 +48,9 @@
  *
  * Una comunicazione è strutturata nel seguente modo: il client invia al server
  * un messaggio, formato da header e body (anche se l'operazione non prevede un
- * body il client lo invia comunque, con lunghezza 0). Il server riceve ed
- * elabora il messaggio, poi risponde al client con solo un header la cui
- * operazione corrisponde all'esito della richiesta.
+ * body il client ne invia comunque uno falso). Il server riceve ed elabora il
+ * messaggio, poi risponde al client con solo un header la cui operazione
+ * corrisponde all'esito della richiesta.
  * L'altra possibilità è che il server invii al client un intero messaggio (per
  * esempio a seguito di una richiesta di invio da parte di un altro client), nel
  * qual caso il client lo legge senza mandare nessun tipo di risposta al server.

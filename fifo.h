@@ -1,6 +1,13 @@
 /**
  * @file fifo.h
  * @brief Libreria per la coda condivisa
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
 #ifndef CHATTERBOX_FIFO_H_
 #define CHATTERBOX_FIFO_H_
@@ -53,7 +60,8 @@ void clear_fifo(fifo_t* q);
  * @brief Thread-safe pop
  *
  * Rimuove il primo elemento dalla coda, gestendo la sincronizzazione tra
- * thread
+ * thread.
+ *
  * @param q La coda da cui estrarre l'elemento
  * @return l'elemento rimosso dalla coda
  */
@@ -63,7 +71,8 @@ TYPE_T ts_pop(fifo_t* q);
  * @brief Thread-safe push
  *
  * Inserisce un nuovo elementi in fondo alla coda, gestendo la sincronizzazione
- * tra thread
+ * tra thread.
+ *
  * @param q La coda in cui inserire l'elemento
  * @param v l'elemento da inserire
  */
@@ -72,7 +81,8 @@ void ts_push(fifo_t* q, TYPE_T v);
 /**
  * @brief Thread-safe is_empty
  *
- * Controlla se la coda è vuota, gestendo la sincronizzazione tra thread
+ * Controlla se la coda è vuota, gestendo la sincronizzazione tra thread.
+ *
  * @param q La coda da controllare
  * @return true se e solo se la coda è vuota
  */

@@ -3,8 +3,7 @@
  *
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
- */
-/**
+ *
  * @file chatty.c
  * @brief File principale del server chatterbox
  *
@@ -13,7 +12,9 @@
  *
  * @author Flavio Ascari
  *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #define _POSIX_C_SOURCE 200809L
 
 #include <assert.h>
@@ -97,7 +98,7 @@ char* UnixPath;
 
 /**
  * @brief Funzione che spiega l'utilizzo del server
- * @param progname il nome del file eseguibile (argc[0])
+ * @param progname il nome del file eseguibile (argv[0])
  */
 void usage(const char *progname) {
 	fprintf(stderr, "Il server va lanciato con il seguente comando:\n");
@@ -113,7 +114,7 @@ void usage(const char *progname) {
  *
  * In caso di segnale di terminazione, questa funzione ritorna per restituire
  * il controllo al main, che a sua volta termina dopo aver eseguito un po' di
- * cleanup
+ * cleanup.
  *
  * @param handled_signals L'insieme dei segnali da gestire, visto che il main
  *                        deve già crearlo per mascherarli in tutti i thread
@@ -196,7 +197,7 @@ void signal_handler_thread(sigset_t* handled_signals) {
  * @brief main del thread listener, che gestisce le connessioni con i client
  *
  * Gestisce sia le richieste di nuove connessioni, sia i messaggi inviati dai
- * client già connessi
+ * client già connessi.
  *
  * @param arg Nulla (si può passare NULL)
  */
@@ -287,6 +288,33 @@ void* listener_thread(void* arg) {
 }
 
 
+// ------------------------- workers -----------------------
+
+/**
+ * @brief Risponde con un errore ad un client, poi chiude la connessione.
+ *
+ * @param response (message_t) Il messaggio da inviare come risposta
+ * @param fd (int) Il fd su cui rispondere
+ * @param err_op (op_t) Il tipo di errore
+ */
+#define sendFatalFailResponse(response, fd, err_op) \
+	setHeader(&response.hdr, err_op, ""); \
+	if (!sendHdrResponse(fd, &response.hdr)) \
+		disconnectClient(fd); \
+	++chattyStats.nerrors
+
+/**
+ * @brief Risponde con un errore ad un client, ma potrebbe non chiudere la connessione.
+ *
+ * @param response (message_t) Il messaggio da inviare come risposta
+ * @param fd (int) Il fd su cui rispondere
+ * @param err_op (op_t) Il tipo di errore
+ * @param fdclose (bool) La variabile che deve contenere se il client si è disconnesso o meno
+ */
+#define sendSoftFailResponse(response, fd, err_op, fdclose) \
+	setHeader(&response.hdr, err_op, ""); \
+	fdclose = sendHdrResponse(fd, &response.hdr); \
+	++chattyStats.nerrors
 
 /**
  * @brief Modifica le strutture dati necessarie alla disconnessione di un client
@@ -437,20 +465,22 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 		#ifdef DEBUG
 			fprintf(stderr, "Richiesta di operazione da un nickname inesistente\n");
 		#endif
-		setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
-		if (!sendHdrResponse(fd, &response.hdr))
-			disconnectClient(fd);
-		++chattyStats.nerrors;
+		sendFatalFailResponse(response, fd, OP_NICK_UNKNOWN);
+		// setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
+		// if (!sendHdrResponse(fd, &response.hdr))
+		// 	disconnectClient(fd);
+		// ++chattyStats.nerrors;
 		return false;
 	}
 	if (nick_data->fd != fd) {
 		#ifdef DEBUG
 			fprintf(stderr, "Richiesta su un fd diverso da quello del nickname\n");
 		#endif
-		setHeader(&response.hdr, OP_FAIL, "");
-		if (!sendHdrResponse(fd, &response.hdr))
-			disconnectClient(fd);
-		++chattyStats.nerrors;
+		sendFatalFailResponse(response, fd, OP_FAIL);
+		// setHeader(&response.hdr, OP_FAIL, "");
+		// if (!sendHdrResponse(fd, &response.hdr))
+		// 	disconnectClient(fd);
+		// ++chattyStats.nerrors;
 		return false;
 	}
 	return true;
@@ -522,10 +552,11 @@ void* worker_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
-						setHeader(&response.hdr, OP_NICK_ALREADY, "");
-						if (!sendHdrResponse(localfd, &response.hdr))
-							disconnectClient(localfd);
-						++chattyStats.nerrors;
+						sendFatalFailResponse(response, localfd, OP_NICK_ALREADY);
+						// setHeader(&response.hdr, OP_NICK_ALREADY, "");
+						// if (!sendHdrResponse(localfd, &response.hdr))
+						// 	disconnectClient(localfd);
+						// ++chattyStats.nerrors;
 						fdclose = true;
 					}
 					else {
@@ -574,10 +605,11 @@ void* worker_thread(void* arg) {
 							#ifdef DEBUG
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
-							setHeader(&response.hdr, OP_NICK_CONN, "");
-							if (!sendHdrResponse(localfd, &response.hdr))
-								disconnectClient(localfd);
-							++chattyStats.nerrors;
+							sendFatalFailResponse(response, localfd, OP_NICK_CONN);
+							// setHeader(&response.hdr, OP_NICK_CONN, "");
+							// if (!sendHdrResponse(localfd, &response.hdr))
+							// 	disconnectClient(localfd);
+							// ++chattyStats.nerrors;
 							fdclose = true;
 						}
 						else {
@@ -599,10 +631,11 @@ void* worker_thread(void* arg) {
 						#ifdef DEBUG
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
-						setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
-						if (!sendHdrResponse(localfd, &response.hdr))
-							disconnectClient(localfd);
-						++chattyStats.nerrors;
+						sendFatalFailResponse(response, localfd, OP_NICK_UNKNOWN);
+						// setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
+						// if (!sendHdrResponse(localfd, &response.hdr))
+						// 	disconnectClient(localfd);
+						// ++chattyStats.nerrors;
 						fdclose = true;
 					}
 				}
@@ -636,29 +669,32 @@ void* worker_thread(void* arg) {
 						// Client regolare
 						if (!checkMsg(&msg)) {
 							// Messaggio invalido
-							setHeader(&response.hdr, OP_MSG_INVALID, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
-							++chattyStats.nerrors;
+							sendSoftFailResponse(response, localfd, OP_MSG_INVALID, fdclose);
+							// setHeader(&response.hdr, OP_MSG_INVALID, "");
+							// fdclose = sendHdrResponse(localfd, &response.hdr);
+							// ++chattyStats.nerrors;
 						}
 						else if (msg.data.hdr.len > MaxMsgSize) {
 							// Messaggio troppo lungo
-							setHeader(&response.hdr, OP_MSG_TOOLONG, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
-							++chattyStats.nerrors;
+							sendSoftFailResponse(response, localfd, OP_MSG_TOOLONG, fdclose);
+							// setHeader(&response.hdr, OP_MSG_TOOLONG, "");
+							// fdclose = sendHdrResponse(localfd, &response.hdr);
+							// ++chattyStats.nerrors;
 						}
 						else {
 							nickname_t* receiver = hash_find(nickname_htable, msg.data.hdr.receiver);
 							if (receiver == NULL) {
 								// Destinatario inesistente
-								setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_DEST_UNKNOWN, fdclose);
+								// setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							else {
 								// Situazione normale
 								msg.hdr.op = TXT_MESSAGE;
-								add_to_history(receiver, msg);
 								error_handling_lock(&(receiver->mutex));
+								add_to_history(receiver, msg);
 								if (receiver->fd > 0) {
 									// Non fa gestione dell'errore perché se non
 									// riesce ad inviare è un problema del client,
@@ -689,9 +725,10 @@ void* worker_thread(void* arg) {
 						// Client regolare
 						if (!checkMsg(&msg)) {
 							// Messaggio invalido
-							setHeader(&response.hdr, OP_MSG_INVALID, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
-							++chattyStats.nerrors;
+							sendSoftFailResponse(response, localfd, OP_MSG_INVALID, fdclose);
+							// setHeader(&response.hdr, OP_MSG_INVALID, "");
+							// fdclose = sendHdrResponse(localfd, &response.hdr);
+							// ++chattyStats.nerrors;
 						}
 						else {
 							// Situazione normale
@@ -711,8 +748,8 @@ void* worker_thread(void* arg) {
 								// viene cancellato l'ultimo
 								msg.data.buf = malloc(msg.data.hdr.len * sizeof(char));
 								strncpy(msg.data.buf, original_buffer, msg.data.hdr.len);
-								add_to_history(val, msg);
 								error_handling_lock(&(val->mutex));
+								add_to_history(val, msg);
 								if (val->fd > 0) {
 									sendRequest(val->fd, &msg);
 									++chattyStats.ndelivered;
@@ -765,9 +802,10 @@ void* worker_thread(void* arg) {
 						nickname_t* receiver = hash_find(nickname_htable, msg.data.hdr.receiver);
 						if (receiver == NULL) {
 							// Destinatario inesistente
-							setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
-							++chattyStats.nerrors;
+							sendSoftFailResponse(response, localfd, OP_DEST_UNKNOWN, fdclose);
+							// setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
+							// fdclose = sendHdrResponse(localfd, &response.hdr);
+							// ++chattyStats.nerrors;
 						}
 						else {
 							// Situazione normale
@@ -785,37 +823,41 @@ void* worker_thread(void* arg) {
 							if (filefd < 0
 								|| dup2(filefd, MaxConnections + workerNumber) < 0) {
 								perror("aprendo il file");
-								setHeader(&response.hdr, OP_FAIL, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+								// setHeader(&response.hdr, OP_FAIL, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							// Scarica il file
 							else {
 								close(filefd);
 								if (readData(localfd, &file) <= 0) {
 									perror("scaricando un file");
-									setHeader(&response.hdr, OP_FAIL, "");
-									fdclose = sendHdrResponse(localfd, &response.hdr);
-									++chattyStats.nerrors;
+									sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+									// setHeader(&response.hdr, OP_FAIL, "");
+									// fdclose = sendHdrResponse(localfd, &response.hdr);
+									// ++chattyStats.nerrors;
 								}
 								// Salva il file
 								else if (file.hdr.len > MaxFileSize * FILE_SIZE_FACTOR) {
 									// File troppo grosso
-									setHeader(&response.hdr, OP_MSG_TOOLONG, "");
-									fdclose = sendHdrResponse(localfd, &response.hdr);
-									++chattyStats.nerrors;
+									sendSoftFailResponse(response, localfd, OP_MSG_TOOLONG, fdclose);
+									// setHeader(&response.hdr, OP_MSG_TOOLONG, "");
+									// fdclose = sendHdrResponse(localfd, &response.hdr);
+									// ++chattyStats.nerrors;
 								}
 								else if (write(MaxConnections + workerNumber, file.buf, file.hdr.len) < 0) {
 									perror("writing to output file");
-									setHeader(&response.hdr, OP_FAIL, "");
-									fdclose = sendHdrResponse(localfd, &response.hdr);
-									++chattyStats.nerrors;
+									sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+									// setHeader(&response.hdr, OP_FAIL, "");
+									// fdclose = sendHdrResponse(localfd, &response.hdr);
+									// ++chattyStats.nerrors;
 								}
 								else {
 									// È andato tutto bene
 									msg.hdr.op = FILE_MESSAGE;
-									add_to_history(receiver, msg);
 									error_handling_lock(&(receiver->mutex));
+									add_to_history(receiver, msg);
 									if (receiver->fd > 0) {
 										// Non fa gestione dell'errore perché se non
 										// riesce ad inviare è un problema del client,
@@ -867,45 +909,51 @@ void* worker_thread(void* arg) {
 								#ifdef DEBUG
 									fprintf(stderr, "%d: il file richiesto non esiste\n", workerNumber);
 								#endif
-								setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_NO_SUCH_FILE, fdclose);
+								// setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							else {
 								perror("aprendo il file");
-								setHeader(&response.hdr, OP_FAIL, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+								// setHeader(&response.hdr, OP_FAIL, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 						}
 						else if (dup2(filefd, MaxConnections + workerNumber) < 0) {
 							perror("aprendo il file");
-							setHeader(&response.hdr, OP_FAIL, "");
-							fdclose = sendHdrResponse(localfd, &response.hdr);
-							++chattyStats.nerrors;
+							sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+							// setHeader(&response.hdr, OP_FAIL, "");
+							// fdclose = sendHdrResponse(localfd, &response.hdr);
+							// ++chattyStats.nerrors;
 						}
 						// Legge la lunghezza del file
 						else {
 							close(filefd);
 							if (stat(full_filename, &st) < 0) {
 								perror("stat");
-								setHeader(&response.hdr, OP_FAIL, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+								// setHeader(&response.hdr, OP_FAIL, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							else if (!S_ISREG(st.st_mode)) {
 								fprintf(stderr, "ERRORE: il file %s non e' un file regolare\n", msg.data.buf);
-								setHeader(&response.hdr, OP_FAIL, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+								// setHeader(&response.hdr, OP_FAIL, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							// Legge il file in memoria
 							else if ((mappedfile = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, MaxConnections + workerNumber, 0)) == MAP_FAILED) {
 								perror("mmap");
 								fprintf(stderr, "ERRORE: mappando il file %s in memoria\n", msg.data.buf);
-								setHeader(&response.hdr, OP_FAIL, "");
-								fdclose = sendHdrResponse(localfd, &response.hdr);
-								++chattyStats.nerrors;
+								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
+								// setHeader(&response.hdr, OP_FAIL, "");
+								// fdclose = sendHdrResponse(localfd, &response.hdr);
+								// ++chattyStats.nerrors;
 							}
 							else {
 								// È andato tutto bene
@@ -930,10 +978,11 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta operazione sconosciuta\n", workerNumber);
 					#endif
-					setHeader(&response.hdr, OP_FAIL, "");
-					if (!sendHdrResponse(localfd, &response.hdr))
-						disconnectClient(localfd);
-					fdclose = true;
+					sendFatalFailResponse(response, localfd, OP_FAIL);
+					// setHeader(&response.hdr, OP_FAIL, "");
+					// if (!sendHdrResponse(localfd, &response.hdr))
+					// 	disconnectClient(localfd);
+					// fdclose = true;
 				}
 				break;
 			}

@@ -1,6 +1,13 @@
 /**
  * @file fifo.c
  * @brief Implementazione di fifo.h
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
 
 #include "fifo.h"

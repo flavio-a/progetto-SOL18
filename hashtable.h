@@ -1,7 +1,15 @@
 /**
  * @file hashtable.h
  * @brief Libreria per l'hashtable condivisa
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #ifndef CHATTERBOX_HASH_H_
 #define CHATTERBOX_HASH_H_
 
@@ -23,8 +31,8 @@
  * nell'hashtable allora è registrato. Il valore associato ad ogni chiave è un
  * nickname_t, contenente tutte le informazioni associate ad un nickname.
  *
- * L'hashtable gestisce la concorrenza solo di rimozioni e inserimenti. Le
- * modifiche ai singoli elementi devono essere sincronizzate separatamente.
+ * L'hashtable gestisce solo la concorrenza sulle modifiche alla sua struttura.
+ * Le modifiche ai valori memorizzati devono essere sincronizzate separatamente.
  */
 
 /**
@@ -54,14 +62,16 @@ htable_t* hash_create(int nbuckets, int history_size);
 /**
  * @brief Elimina un'hashtable per liberare la memoria
  * @param ht l'hashtable da eliminare
- * @return 0 in caso di successo, <0 in caso di errore
+ * @return 0 in caso di successo, < 0 in caso di errore
  */
 int ts_hash_destroy(htable_t* ht);
 
 /**
  * @brief Cerca una chiave nell'hashtable
  *
- * Questa funzione non è sincronizzata.
+ * Questa funzione non è sincronizzata perché, essendo in sola lettura e dato
+   che l'inserimento e la rimozione lasciano SEMPRE l'hashtable in uno stato
+   consistente, non può generare corse critiche con altri thread.
  *
  * @param ht L'hashtable in cui cercare la chiave
  * @param key La chiave da cercare
@@ -71,8 +81,8 @@ nickname_t* hash_find(htable_t* ht, char* key);
 
 /**
  * @brief Thread-safe insert. Se la chiave è già presente, non fa nulla.
+ * Inserisce la chiave senza nessun dato associato.
  *
- * Inserisce la chiave senza nessun dato associato
  * @param ht L'hashtable in cui inserire la chiave
  * @param key La chiave da inserire
  * @return Un puntatore al nuovo elemento. Se l'elemento era già presente, NULL

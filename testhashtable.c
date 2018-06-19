@@ -1,3 +1,14 @@
+/**
+ * @brief Test per il file hashtable.h
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -19,7 +30,7 @@ int main(int argc, char** argv) {
 	// inserimento
 	nickname_t* insert_item = ts_hash_insert(ht, TEST_KEY);
 	// ricerca
-	nickname_t* find_item = ts_hash_find(ht, TEST_KEY);
+	nickname_t* find_item = hash_find(ht, TEST_KEY);
 	assert(insert_item == find_item);
 	assert(find_item != NULL);
 	fprintf(stderr, "fd: %d, first: %d, hist_size: %d\n", find_item->fd, find_item->first, find_item->hist_size);
@@ -28,7 +39,7 @@ int main(int argc, char** argv) {
 	assert(ts_hash_insert(ht, TEST_KEY) == NULL);
 	// rimozione
 	ts_hash_remove(ht, TEST_KEY);
-	assert(ts_hash_find(ht, TEST_KEY) == NULL);
+	assert(hash_find(ht, TEST_KEY) == NULL);
 
 	printf("Superati test di base\n");
 
@@ -37,7 +48,7 @@ int main(int argc, char** argv) {
 		char* key = malloc((MAX_KEYS_LENGTH + 1) * sizeof(char));
 		snprintf(key, MAX_KEYS_LENGTH + 1, "%d", i);
 		ts_hash_insert(ht, key);
-		nickname_t* tmp = ts_hash_find(ht, key);
+		nickname_t* tmp = hash_find(ht, key);
 		tmp->fd = i % 2 == 0 ? 0 : i;
 	}
 	int i;
@@ -49,7 +60,7 @@ int main(int argc, char** argv) {
 		if (val->fd == 0)
 			val->first = 1;
 	}
-	assert(ts_hash_find(ht, "2")->first == 1);
+	assert(hash_find(ht, "2")->first == 1);
 
 	printf("Superato test sull'iterazione\n");
 

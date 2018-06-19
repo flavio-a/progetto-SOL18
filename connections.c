@@ -3,6 +3,13 @@
 /**
  * @file  connections.c
  * @brief Implementazione di connections.h
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
 
 // La documentazione dei metodi pubblici di questo file è in connections.h

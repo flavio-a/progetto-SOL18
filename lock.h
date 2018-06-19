@@ -1,7 +1,15 @@
 /**
  * @file lock.h
- * @brief Libreria per lock e unlock un po' più robuste condivisa
+ * @brief Libreria per lock e unlock un po' più robuste
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #ifndef CHATTERBOX_LOCK_H_
 #define CHATTERBOX_LOCK_H_
 
@@ -20,7 +28,7 @@
 *
 * In caso di fallimento, il lock viene riprovato ad intervalli di LOCK_RETRY_TIME
 * fino ad un massimo di LOCK_MAX_ATTEMPTS volte. Dopo questi tentativi, il
-* programma viene terminato con un errore
+* programma viene terminato con un errore.
 * @param mutex La mutex da acquisire
 */
 void error_handling_lock(pthread_mutex_t* mutex);
@@ -30,7 +38,7 @@ void error_handling_lock(pthread_mutex_t* mutex);
 *
 * In caso di fallimento, il programma viene subito terminato con un errore
 * dato che il fallimento di una lock release è un errore molto grave e può
-* portare ad una lock in stato inconsistente
+* portare ad una lock in stato inconsistente.
 * @param mutex La mutex da rilasciare
 */
 void error_handling_unlock(pthread_mutex_t* mutex);

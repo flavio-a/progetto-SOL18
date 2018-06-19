@@ -2,7 +2,15 @@
  * @file nickname.h
  * @brief Libreria per la struttura dati nickname_t, elementi dell'hashtable dei
           nickname.
+ *
+ * Si dichiara che il contenuto di questo file è in ogni sua parte opera
+ * originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
+
 #ifndef CHATTERBOX_NICKNAME_H_
 #define CHATTERBOX_NICKNAME_H_
 
@@ -38,7 +46,8 @@ typedef struct nickname {
  * già stato acquisito.
  *
  * @param nick (nickname_t*) Il nickname sulla cui history si vuole iterare.
- * @param i (int) L'indice nella history, va usato sempre modulo hist_size.
+ * @param i (int) L'indice nella history, va usato sempre modulo hist_size (si
+                  consiglia di usare direttamente l'elemento msg invece di i).
  * @param msg (message_t*) Puntatore all'elemento corrente della history.
  */
 #define history_foreach(nick, i, msg) \
@@ -66,7 +75,7 @@ nickname_t* create_nickname(int history_size);
  *
  * @param val (nickname_t*) il nickname da eliminare.
  */
-void free_nickname_t(void* val);
+void free_nickname(void* val);
 
 /**
  * @brief Controlla se l'history di un nickname_t è piena.
@@ -77,12 +86,9 @@ void free_nickname_t(void* val);
 bool is_history_full(nickname_t* nick);
 
 /**
- * @brief Aggiunge un messaggio alla history. Gestisce la concorrenza e libera
- * la memoria quando serve.
+ * @brief Aggiunge un messaggio alla history. Libera la memoria quando serve.
  *
- * TODO (opt): non fargli acquisire la lock. In chatty:627 (nel case di
- * POSTTXTALL_OP) viene eseguita subito prima di un'altra operazione che
- * necessita della stessa lock.
+ * Si aspetta che sia già stato acquisito il lock su nick->mutex.
  *
  * @param nick Il nickname_t a cui aggiungere il messaggio
  * @param msg Il messaggio da aggiungere (il messaggio viene copiato, il
@@ -98,15 +104,5 @@ void add_to_history(nickname_t* nick, message_t msg);
  * @return La lunghezza della history.
  */
 int history_len(nickname_t* nick);
-
-/**
- * @brief Cerca un nome di file nella history
- *
- * @param nick Il nickname_t in cui cercare il file
- * @param name Il nome del file da cercare
- * @return True se il nome del file è nella history, false altrimenti
- */
-bool search_file_history(nickname_t* nick, char* name);
-
 
 #endif /* CHATTERBOX_NICKNAME_H_ */
