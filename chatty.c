@@ -466,10 +466,6 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 			fprintf(stderr, "Richiesta di operazione da un nickname inesistente\n");
 		#endif
 		sendFatalFailResponse(response, fd, OP_NICK_UNKNOWN);
-		// setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
-		// if (!sendHdrResponse(fd, &response.hdr))
-		// 	disconnectClient(fd);
-		// ++chattyStats.nerrors;
 		return false;
 	}
 	if (nick_data->fd != fd) {
@@ -477,10 +473,6 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 			fprintf(stderr, "Richiesta su un fd diverso da quello del nickname\n");
 		#endif
 		sendFatalFailResponse(response, fd, OP_FAIL);
-		// setHeader(&response.hdr, OP_FAIL, "");
-		// if (!sendHdrResponse(fd, &response.hdr))
-		// 	disconnectClient(fd);
-		// ++chattyStats.nerrors;
 		return false;
 	}
 	return true;
@@ -553,10 +545,6 @@ void* worker_thread(void* arg) {
 							fprintf(stderr, "%d: Nickname %s già esistente!\n", workerNumber, msg.hdr.sender);
 						#endif
 						sendFatalFailResponse(response, localfd, OP_NICK_ALREADY);
-						// setHeader(&response.hdr, OP_NICK_ALREADY, "");
-						// if (!sendHdrResponse(localfd, &response.hdr))
-						// 	disconnectClient(localfd);
-						// ++chattyStats.nerrors;
 						fdclose = true;
 					}
 					else {
@@ -606,10 +594,6 @@ void* worker_thread(void* arg) {
 								fprintf(stderr, "%d: Nick \"%s\" già connesso!\n", workerNumber, msg.hdr.sender);
 							#endif
 							sendFatalFailResponse(response, localfd, OP_NICK_CONN);
-							// setHeader(&response.hdr, OP_NICK_CONN, "");
-							// if (!sendHdrResponse(localfd, &response.hdr))
-							// 	disconnectClient(localfd);
-							// ++chattyStats.nerrors;
 							fdclose = true;
 						}
 						else {
@@ -632,10 +616,6 @@ void* worker_thread(void* arg) {
 							fprintf(stderr, "%d: Richiesta di connessione di un nickname inesistente\n", workerNumber);
 						#endif
 						sendFatalFailResponse(response, localfd, OP_NICK_UNKNOWN);
-						// setHeader(&response.hdr, OP_NICK_UNKNOWN, "");
-						// if (!sendHdrResponse(localfd, &response.hdr))
-						// 	disconnectClient(localfd);
-						// ++chattyStats.nerrors;
 						fdclose = true;
 					}
 				}
@@ -670,25 +650,16 @@ void* worker_thread(void* arg) {
 						if (!checkMsg(&msg)) {
 							// Messaggio invalido
 							sendSoftFailResponse(response, localfd, OP_MSG_INVALID, fdclose);
-							// setHeader(&response.hdr, OP_MSG_INVALID, "");
-							// fdclose = sendHdrResponse(localfd, &response.hdr);
-							// ++chattyStats.nerrors;
 						}
 						else if (msg.data.hdr.len > MaxMsgSize) {
 							// Messaggio troppo lungo
 							sendSoftFailResponse(response, localfd, OP_MSG_TOOLONG, fdclose);
-							// setHeader(&response.hdr, OP_MSG_TOOLONG, "");
-							// fdclose = sendHdrResponse(localfd, &response.hdr);
-							// ++chattyStats.nerrors;
 						}
 						else {
 							nickname_t* receiver = hash_find(nickname_htable, msg.data.hdr.receiver);
 							if (receiver == NULL) {
 								// Destinatario inesistente
 								sendSoftFailResponse(response, localfd, OP_DEST_UNKNOWN, fdclose);
-								// setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							else {
 								// Situazione normale
@@ -726,9 +697,6 @@ void* worker_thread(void* arg) {
 						if (!checkMsg(&msg)) {
 							// Messaggio invalido
 							sendSoftFailResponse(response, localfd, OP_MSG_INVALID, fdclose);
-							// setHeader(&response.hdr, OP_MSG_INVALID, "");
-							// fdclose = sendHdrResponse(localfd, &response.hdr);
-							// ++chattyStats.nerrors;
 						}
 						else {
 							// Situazione normale
@@ -803,9 +771,6 @@ void* worker_thread(void* arg) {
 						if (receiver == NULL) {
 							// Destinatario inesistente
 							sendSoftFailResponse(response, localfd, OP_DEST_UNKNOWN, fdclose);
-							// setHeader(&response.hdr, OP_DEST_UNKNOWN, "");
-							// fdclose = sendHdrResponse(localfd, &response.hdr);
-							// ++chattyStats.nerrors;
 						}
 						else {
 							// Situazione normale
@@ -824,9 +789,6 @@ void* worker_thread(void* arg) {
 								|| dup2(filefd, MaxConnections + workerNumber) < 0) {
 								perror("aprendo il file");
 								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-								// setHeader(&response.hdr, OP_FAIL, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							// Scarica il file
 							else {
@@ -834,24 +796,15 @@ void* worker_thread(void* arg) {
 								if (readData(localfd, &file) <= 0) {
 									perror("scaricando un file");
 									sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-									// setHeader(&response.hdr, OP_FAIL, "");
-									// fdclose = sendHdrResponse(localfd, &response.hdr);
-									// ++chattyStats.nerrors;
 								}
 								// Salva il file
 								else if (file.hdr.len > MaxFileSize * FILE_SIZE_FACTOR) {
 									// File troppo grosso
 									sendSoftFailResponse(response, localfd, OP_MSG_TOOLONG, fdclose);
-									// setHeader(&response.hdr, OP_MSG_TOOLONG, "");
-									// fdclose = sendHdrResponse(localfd, &response.hdr);
-									// ++chattyStats.nerrors;
 								}
 								else if (write(MaxConnections + workerNumber, file.buf, file.hdr.len) < 0) {
 									perror("writing to output file");
 									sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-									// setHeader(&response.hdr, OP_FAIL, "");
-									// fdclose = sendHdrResponse(localfd, &response.hdr);
-									// ++chattyStats.nerrors;
 								}
 								else {
 									// È andato tutto bene
@@ -910,24 +863,16 @@ void* worker_thread(void* arg) {
 									fprintf(stderr, "%d: il file richiesto non esiste\n", workerNumber);
 								#endif
 								sendSoftFailResponse(response, localfd, OP_NO_SUCH_FILE, fdclose);
-								// setHeader(&response.hdr, OP_NO_SUCH_FILE, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							else {
 								perror("aprendo il file");
 								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-								// setHeader(&response.hdr, OP_FAIL, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 						}
 						else if (dup2(filefd, MaxConnections + workerNumber) < 0) {
 							perror("aprendo il file");
+							close(filefd);
 							sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-							// setHeader(&response.hdr, OP_FAIL, "");
-							// fdclose = sendHdrResponse(localfd, &response.hdr);
-							// ++chattyStats.nerrors;
 						}
 						// Legge la lunghezza del file
 						else {
@@ -935,25 +880,16 @@ void* worker_thread(void* arg) {
 							if (stat(full_filename, &st) < 0) {
 								perror("stat");
 								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-								// setHeader(&response.hdr, OP_FAIL, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							else if (!S_ISREG(st.st_mode)) {
 								fprintf(stderr, "ERRORE: il file %s non e' un file regolare\n", msg.data.buf);
 								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-								// setHeader(&response.hdr, OP_FAIL, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							// Legge il file in memoria
 							else if ((mappedfile = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, MaxConnections + workerNumber, 0)) == MAP_FAILED) {
 								perror("mmap");
 								fprintf(stderr, "ERRORE: mappando il file %s in memoria\n", msg.data.buf);
 								sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
-								// setHeader(&response.hdr, OP_FAIL, "");
-								// fdclose = sendHdrResponse(localfd, &response.hdr);
-								// ++chattyStats.nerrors;
 							}
 							else {
 								// È andato tutto bene
@@ -978,11 +914,7 @@ void* worker_thread(void* arg) {
 					#ifdef DEBUG
 						fprintf(stderr, "%d: Ricevuta operazione sconosciuta\n", workerNumber);
 					#endif
-					sendFatalFailResponse(response, localfd, OP_FAIL);
-					// setHeader(&response.hdr, OP_FAIL, "");
-					// if (!sendHdrResponse(localfd, &response.hdr))
-					// 	disconnectClient(localfd);
-					// fdclose = true;
+					sendSoftFailResponse(response, localfd, OP_FAIL, fdclose);
 				}
 				break;
 			}
@@ -1069,45 +1001,45 @@ int main(int argc, char *argv[]) {
 			char* paramValue = strtok(NULL, " \n	");
 			// Controlla le linee che non sono parametri
 			if (paramName != NULL && paramName[0] != '\n' && equalSign[0] == '=' && equalSign[1] == '\0') {
-				if (strncmp(paramName, "ThreadsInPool", 14) == 0) {
+				if (strncmp(paramName, "ThreadsInPool", strlen("ThreadsInPool") + 1) == 0) {
 					ThreadsInPool = strtol(paramValue, NULL, 10);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto ThreadsInPool: %d\n", ThreadsInPool);
 					#endif
 				}
-				else if (strncmp(paramName, "MaxHistMsgs", 12) == 0) {
+				else if (strncmp(paramName, "MaxHistMsgs", strlen("MaxHistMsgs") + 1) == 0) {
 					MaxHistMsgs = strtol(paramValue, NULL, 10);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxHistMsgs: %d\n", MaxHistMsgs);
 					#endif
 				}
-				else if (strncmp(paramName, "MaxMsgSize", 11) == 0) {
+				else if (strncmp(paramName, "MaxMsgSize", strlen("MaxMsgSize") + 1) == 0) {
 					MaxMsgSize = strtol(paramValue, NULL, 10);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxMsgSize: %d\n", MaxMsgSize);
 					#endif
 				}
-				else if (strncmp(paramName, "MaxFileSize", 12) == 0) {
+				else if (strncmp(paramName, "MaxFileSize", strlen("MaxFileSize") + 1) == 0) {
 					MaxFileSize = strtol(paramValue, NULL, 10);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxFileSize: %d\n", MaxFileSize);
 					#endif
 				}
-				else if (strncmp(paramName, "MaxConnections", 15) == 0) {
+				else if (strncmp(paramName, "MaxConnections", strlen("MaxConnections") + 1) == 0) {
 					MaxConnections = strtol(paramValue, NULL, 10);
 					MaxConnections += 5; // Serve solo aumentata
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxConnections: %d\n", MaxConnections);
 					#endif
 				}
-				else if (strncmp(paramName, "UnixPath", 9) == 0) {
+				else if (strncmp(paramName, "UnixPath", strlen("UnixPath") + 1) == 0) {
 					UnixPath = malloc((strlen(paramValue) + 1) * sizeof(char));
 					strncpy(UnixPath, paramValue, strlen(paramValue) + 1);
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto UnixPath: %s\n", UnixPath);
 					#endif
 				}
-				else if (strncmp(paramName, "DirName", 8) == 0) {
+				else if (strncmp(paramName, "DirName", strlen("DirName") + 1) == 0) {
 					DirName = malloc((strlen(paramValue) + 2) * sizeof(char));
 					strncpy(DirName, paramValue, strlen(paramValue));
 					// Serve solo con lo / finale
@@ -1117,7 +1049,7 @@ int main(int argc, char *argv[]) {
 						fprintf(stderr, "Letto DirName: %s\n", DirName);
 					#endif
 				}
-				else if (strncmp(paramName, "StatFileName", 13) == 0) {
+				else if (strncmp(paramName, "StatFileName", strlen("StatFileName") + 1) == 0) {
 					StatFileName = malloc((strlen(paramValue) + 1) * sizeof(char));
 					strncpy(StatFileName, paramValue, strlen(paramValue) + 1);
 					#if defined DEBUG && defined VERBOSE
