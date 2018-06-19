@@ -1,8 +1,6 @@
-- probabilmente serve sincronizzare l'utilizzo degli fd dei client (si possono
-  usare le mutex della nickname_htable?)
-- scrivere lo script bash
-- ricontrollare tutti i memory leak rimasti in giro. In particolare:
-  - deallocare tutte le mutex allocate in giro
 - ricontrollare tutte le sincronizzazioni e gli usi delle variabili condivise
-- scrivere qualcosa di più sensato per leggere il file di configurazione
+  - probabilmente serve sincronizzare l'utilizzo degli fd dei client (si possono
+    usare le mutex della nickname_htable?)
 - ricontrollare tutto il codice per il formato richiesto (soprattutto commenti)
+AHAHAHAHAH NO:
+- scrivere qualcosa di più sensato per leggere il file di configurazione

@@ -50,7 +50,7 @@ OPTFLAGS	= -O2
 LIBS		= -pthread
 
 # commentare questa riga per evitare il debug
-CFLAGS		+= -DDEBUG
+# CFLAGS		+= -DDEBUG
 # commentare questa riga per evitare il debug verboso
 # CFLAGS		+= -DVERBOSE
 
@@ -164,7 +164,7 @@ test2:
 	make cleanall
 	\mkdir -p $(DIR_PATH)
 	make all
-	./chatty -f DATA/chatty.conf1 >file.txt 2>&1 &
+	./chatty -f DATA/chatty.conf1&
 	./testfile.sh $(UNIX_PATH) $(DIR_PATH)
 	killall -QUIT -w chatty
 	@echo "********** Test2 superato!"

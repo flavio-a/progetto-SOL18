@@ -60,11 +60,6 @@ fifo_t queue;
 int* freefd;
 char* freefd_ack;
 
-// /**
-//  * Flag per segnalare al listener che ha ricevuto un SIGUSR2
-//  */
-// volatile sig_atomic_t received_sigusr2 = false;
-
 /**
  * Tid del signal handler
  */
@@ -119,28 +114,18 @@ void usage(const char *progname) {
  * In caso di segnale di terminazione, questa funzione ritorna per restituire
  * il controllo al main, che a sua volta termina dopo aver eseguito un po' di
  * cleanup
+ *
+ * @param handled_signals L'insieme dei segnali da gestire, visto che il main
+ *                        deve già crearlo per mascherarli in tutti i thread
  */
-void signal_handler_thread() {
+void signal_handler_thread(sigset_t* handled_signals) {
 	const int statsfd = MaxConnections + ThreadsInPool + 1;
 	const int list_pipefd = MaxConnections + ThreadsInPool + 2;
 	char listener_ack_val = 1;
-
-	// crea il set dei segnali da attendere con la sigwait
-	sigset_t handled_signals;
 	int sig_received;
-	if (sigemptyset(&handled_signals) < 0
-		|| sigaddset(&handled_signals, SIGUSR1) < 0
-		|| sigaddset(&handled_signals, SIGUSR2) < 0
-		|| sigaddset(&handled_signals, SIGINT) < 0
-		|| sigaddset(&handled_signals, SIGTERM) < 0
-		|| sigaddset(&handled_signals, SIGQUIT) < 0
-	) {
-		perror("creando la bitmap per aspettare i segnali nel signal handler");
-		exit(EXIT_FAILURE);
-	}
 
 	while(threads_continue) {
-		if (sigwait(&handled_signals, &sig_received) < 0) {
+		if (sigwait(handled_signals, &sig_received) < 0) {
 			perror("sigwait");
 			exit(EXIT_FAILURE);
 		}
@@ -207,16 +192,6 @@ void signal_handler_thread() {
 }
 
 
-
-// /**
-//  * @brief Handler per SIGUSR2, eseguito dal thread listener
-//  *
-//  * Setta semplicemente un flag. Ritorna
-//  */
-// static void siguser2_handler(int signum) {
-// 	received_sigusr2 = true;
-// }
-
 /**
  * @brief main del thread listener, che gestisce le connessioni con i client
  *
@@ -230,16 +205,6 @@ void* listener_thread(void* arg) {
 	const int ssfd = 3;
 	const int pipefd = 4;
 	char ack_buf;
-
-	// // Installa l'handler per SIGUSR2
-	// struct sigaction sigusr2_action;
-	// sigusr2_action.sa_handler = &siguser2_handler;
-	// sigemptyset(&sigusr2_action.sa_mask);
-	// sigusr2_action.sa_flags = 0;
-	// if (sigaction(SIGUSR2, &sigusr2_action, NULL) < 0) {
-	// 	perror("installando l'handler per SIGUSR2");
-	// 	exit(EXIT_FAILURE);
-	// }
 
 	// Preparazione iniziale del fd_set
 	fd_set set, rset;
@@ -255,11 +220,7 @@ void* listener_thread(void* arg) {
 			fprintf(stderr, "Inizia la select\n");
 		#endif
 		if (select(fdnum + 1, &rset, NULL, NULL, NULL) < 0) {
-			// if (errno == EINTR && received_sigusr2) {
-				// received_sigusr2 = false;
-			// }
-			// else
-				perror("select del listener");
+			perror("select del listener");
 		}
 		else {
 			// Select terminata correttamente: controlla quale fd è pronto
@@ -1027,11 +988,13 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	char* conf_path;
-	if (argc == 2)
-		conf_path = argv[1] + 2; // se c'è un solo parametro, assume che il
-								 // contenga il nome del file attaccato a -f
-	else
+	if (argc == 2) {
+		// se c'è un solo parametro, assume che contenga il nome del file attaccato a -f
+		conf_path = argv[1] + 2;
+	}
+	else {
 		conf_path = argv[2];
+	}
 
 	FILE* conf_file;
 	if ((conf_file = fopen(conf_path, "r")) == NULL) {
@@ -1130,21 +1093,20 @@ int main(int argc, char *argv[]) {
 
 	// Crea la bitmap per mascherare i segnali comuni a tutti i thread, che la
 	// erediteranno alla creazione.
-	// Il listener, che non deve mascherare SIGUSR2, si occuperà di smascherarlo
-	sigset_t worker_signalmask;
+	sigset_t signalmask;
 	// Questo if dovrebbe eseguire perror appena dopo la chiamata errata per la
 	// lazy evaluation dell'OR
-	if (sigemptyset(&worker_signalmask) < 0
-		|| sigaddset(&worker_signalmask, SIGUSR1) < 0
-		|| sigaddset(&worker_signalmask, SIGUSR2) < 0
-		|| sigaddset(&worker_signalmask, SIGINT) < 0
-		|| sigaddset(&worker_signalmask, SIGTERM) < 0
-		|| sigaddset(&worker_signalmask, SIGQUIT) < 0
+	if (sigemptyset(&signalmask) < 0
+		|| sigaddset(&signalmask, SIGUSR1) < 0
+		|| sigaddset(&signalmask, SIGUSR2) < 0
+		|| sigaddset(&signalmask, SIGINT) < 0
+		|| sigaddset(&signalmask, SIGTERM) < 0
+		|| sigaddset(&signalmask, SIGQUIT) < 0
 	) {
 		perror("creando la bitmap per mascherare i segnali nel main");
 		exit(EXIT_FAILURE);
 	}
-	if (pthread_sigmask(SIG_SETMASK, &worker_signalmask, NULL) == -1) {
+	if (pthread_sigmask(SIG_SETMASK, &signalmask, NULL) == -1) {
 		perror("pthread_sigmask nel main");
 		exit(EXIT_FAILURE);
 	}
@@ -1188,10 +1150,14 @@ int main(int argc, char *argv[]) {
 	}
 	pthread_t listener;
 	pthread_t pool[ThreadsInPool];
-	freefd = malloc(ThreadsInPool * sizeof(int));
-	freefd_ack = calloc(ThreadsInPool, sizeof(char));
+	if ((freefd = malloc(ThreadsInPool * sizeof(int))) == NULL
+		|| (freefd_ack = calloc(ThreadsInPool, sizeof(char))) == NULL
+		|| (fd_to_nickname = calloc(MaxConnections, sizeof(char*))) == NULL
+		) {
+		perror("out of memory");
+		exit(EXIT_FAILURE);
+	}
 	pthread_mutex_init(&connected_mutex, NULL);
-	fd_to_nickname = calloc(MaxConnections, sizeof(char*));
 	signal_handler = pthread_self();
 	// Crea i vari thread
 	pthread_create(&listener, NULL, &listener_thread, NULL);
@@ -1201,7 +1167,7 @@ int main(int argc, char *argv[]) {
 		pthread_create(pool + i, NULL, &worker_thread, freefd + i);
 	}
 	// Diventa il thread che gestisce i segnali
-	signal_handler_thread();
+	signal_handler_thread(&signalmask);
 	// Se signal_handler_thread ritorna vuol dire che deve aspettare gli altri
 	// thread, eseguire i cleanup finali e poi terminare
 	// In teoria queste chiamate non possono ritornare errore (gli errori
