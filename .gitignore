@@ -2,6 +2,7 @@
 *
 !/**/
 !*.*
+!Makefile
 
 .fuse_*
 doc/

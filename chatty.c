@@ -60,15 +60,15 @@ fifo_t queue;
 int* freefd;
 char* freefd_ack;
 
-/**
- * Flag per segnalare al listener che ha ricevuto un SIGUSR2
- */
-volatile sig_atomic_t received_sigusr2 = false;
+// /**
+//  * Flag per segnalare al listener che ha ricevuto un SIGUSR2
+//  */
+// volatile sig_atomic_t received_sigusr2 = false;
 
 /**
- * Tid del listener
+ * Tid del signal handler
  */
-pthread_t listener;
+pthread_t signal_handler;
 
 /**
  * Variabile globale per interrompere i cicli infiniti dei thread
@@ -121,13 +121,16 @@ void usage(const char *progname) {
  * cleanup
  */
 void signal_handler_thread() {
-	int statsfd = MaxConnections + ThreadsInPool + 1;
+	const int statsfd = MaxConnections + ThreadsInPool + 1;
+	const int list_pipefd = MaxConnections + ThreadsInPool + 2;
+	char listener_ack_val = 1;
 
 	// crea il set dei segnali da attendere con la sigwait
 	sigset_t handled_signals;
 	int sig_received;
 	if (sigemptyset(&handled_signals) < 0
 		|| sigaddset(&handled_signals, SIGUSR1) < 0
+		|| sigaddset(&handled_signals, SIGUSR2) < 0
 		|| sigaddset(&handled_signals, SIGINT) < 0
 		|| sigaddset(&handled_signals, SIGTERM) < 0
 		|| sigaddset(&handled_signals, SIGQUIT) < 0
@@ -145,13 +148,14 @@ void signal_handler_thread() {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto segnale SIGUSR1\n");
 				#if defined VERBOSE
+					fprintf(stderr, "Elenco utenti connessi:\n");
 					int i;
 					icl_entry_t* j;
 					char* key;
 					nickname_t* val;
 					icl_hash_foreach(nickname_htable->htable, i, j, key, val) {
 						if (val->fd != 0) {
-							fprintf(stderr, "Connesso %s\n", key);
+							fprintf(stderr, "  %s\n", key);
 						}
 	 				}
 				#endif
@@ -179,14 +183,17 @@ void signal_handler_thread() {
 				close(statsfd);
 			}
 		}
-		if (sig_received == SIGINT || sig_received == SIGTERM || sig_received == SIGQUIT) {
+		else if (sig_received == SIGUSR2) {
+			// Deve mandare un ack al listener tramite la pipe
+			write(list_pipefd, &listener_ack_val, 1);
+		}
+		else if (sig_received == SIGINT || sig_received == SIGTERM || sig_received == SIGQUIT) {
 			#ifdef DEBUG
 				fprintf(stderr, "Ricevuto segnale di interruzione, chiudo su tutto per bene\n");
 			#endif
 			threads_continue = false;
-			// Sblocca il listener con un SIGUSR2
-			// Si potrebbe usare un segnale diverso, ma è sbatti per quasi nessun guadagno
-			pthread_kill(listener, SIGUSR2);
+			// Sblocca il listener scrivendogli sulla pipe
+			write(list_pipefd, &listener_ack_val, 1);
 			// Sblocca i worker con un TERMINATION_FD
 			for (unsigned int i = 0; i < ThreadsInPool; ++i) {
 				ts_push(&queue, TERMINATION_FD);
@@ -195,19 +202,20 @@ void signal_handler_thread() {
 		}
 	}
 
+	close(list_pipefd);
 	return;
 }
 
 
 
-/**
- * @brief Handler per SIGUSR2, eseguito dal thread listener
- *
- * Setta semplicemente un flag. Ritorna
- */
-static void siguser2_handler(int signum) {
-	received_sigusr2 = true;
-}
+// /**
+//  * @brief Handler per SIGUSR2, eseguito dal thread listener
+//  *
+//  * Setta semplicemente un flag. Ritorna
+//  */
+// static void siguser2_handler(int signum) {
+// 	received_sigusr2 = true;
+// }
 
 /**
  * @brief main del thread listener, che gestisce le connessioni con i client
@@ -218,60 +226,39 @@ static void siguser2_handler(int signum) {
  * @param arg Nulla (si può passare NULL)
  */
 void* listener_thread(void* arg) {
-	// Salva il fd del socket
-	int ssfd = fdnum;
+	// Non c'è bisogno di leggerlo, deve esere 3 per forza
+	const int ssfd = 3;
+	const int pipefd = 4;
+	char ack_buf;
 
-	// Smaschera SIGUSR2
-	sigset_t sigset;
-	if (sigemptyset(&sigset) < 0 || sigaddset(&sigset, SIGUSR2) < 0) {
-		perror("creando la bitmap per smascherare SIGUSR2 nel listener");
-		exit(EXIT_FAILURE);
-	}
-	if (pthread_sigmask(SIG_UNBLOCK, &sigset, NULL) < 0) {
-		perror("pthread_sigmask nel listener");
-		exit(EXIT_FAILURE);
-	}
-	// Installa l'handler per SIGUSR2
-	struct sigaction sigusr2_action;
-	sigusr2_action.sa_handler = &siguser2_handler;
-	sigemptyset(&sigusr2_action.sa_mask);
-	sigusr2_action.sa_flags = 0;
-	if (sigaction(SIGUSR2, &sigusr2_action, NULL) < 0) {
-		perror("installando l'handler per SIGUSR2");
-		exit(EXIT_FAILURE);
-	}
+	// // Installa l'handler per SIGUSR2
+	// struct sigaction sigusr2_action;
+	// sigusr2_action.sa_handler = &siguser2_handler;
+	// sigemptyset(&sigusr2_action.sa_mask);
+	// sigusr2_action.sa_flags = 0;
+	// if (sigaction(SIGUSR2, &sigusr2_action, NULL) < 0) {
+	// 	perror("installando l'handler per SIGUSR2");
+	// 	exit(EXIT_FAILURE);
+	// }
 
 	// Preparazione iniziale del fd_set
 	fd_set set, rset;
 	FD_ZERO(&set);
 	FD_SET(ssfd, &set);
+	FD_SET(pipefd, &set);
 
 	// Ciclo di esecuzione
 	while (threads_continue) {
 		rset = set;
 		// Usa la SC select per ascoltare contemporaneamente su molti socket
+		#if defined DEBUG && defined VERBOSE
+			fprintf(stderr, "Inizia la select\n");
+		#endif
 		if (select(fdnum + 1, &rset, NULL, NULL, NULL) < 0) {
-			// Se ho ricevuto un segnale SIGUSR2 controllo se uno dei worker ha
-			// liberato un filedescriptor
-			if (errno == EINTR && received_sigusr2) {
-				received_sigusr2 = false;
-				// Controlla quali ack sono a 1 (eventualmente nessuno, in caso
-				// di segnali spurii)
-				for (int i = 0; i < ThreadsInPool; ++i) {
-					if (freefd_ack[i] == 1) {
-						// Aggiunge freefd[i] alla bitmap su cui esegue la select
-						FD_SET(freefd[i], &set);
-						// Non c'è bisogno di aggiornare fd_num perché un fd
-						// arrivato da un worker è stato accettato da listener,
-						// quindi ha già modificato fd_num
-						freefd_ack[i] = 0;
-						#if defined DEBUG && defined VERBOSE
-							fprintf(stderr, "Ricevuto un fd da un worker\n");
-						#endif
-					}
-				}
-			}
-			else
+			// if (errno == EINTR && received_sigusr2) {
+				// received_sigusr2 = false;
+			// }
+			// else
 				perror("select del listener");
 		}
 		else {
@@ -281,7 +268,27 @@ void* listener_thread(void* arg) {
             #endif
 			for (int fd = 0; fd <= fdnum; ++fd) {
 				if (FD_ISSET(fd, &rset)) {
-					if (fd == ssfd) {
+					if (fd == pipefd) {
+						// Cancella l'ack del signal handler
+						read(pipefd, &ack_buf, 1);
+						// Controlla quali ack sono a 1 (eventualmente nessuno,
+						// in caso di segnali spurii)
+						for (int i = 0; i < ThreadsInPool; ++i) {
+							if (freefd_ack[i] == 1) {
+								// Aggiunge freefd[i] alla bitmap su cui esegue
+								// la select
+								FD_SET(freefd[i], &set);
+								// Non c'è bisogno di aggiornare fdnum perché un
+								// fd arrivato da un worker è stato accettato dal
+								// listener, quindi ha già modificato fdnum
+								#if defined DEBUG && defined VERBOSE
+									fprintf(stderr, "Ricevuto fd %d da un worker\n", freefd[i]);
+								#endif
+								freefd_ack[i] = 0;
+							}
+						}
+					}
+					else if (fd == ssfd) {
 						// Richiesta di nuova connessione
 						int newfd = accept(ssfd, NULL, 0);
 						#ifdef DEBUG
@@ -314,6 +321,7 @@ void* listener_thread(void* arg) {
 		}
 	}
 
+	close(pipefd);
 	return NULL;
 }
 
@@ -974,17 +982,20 @@ void* worker_thread(void* arg) {
 		}
 		// Finita la richiesta segnala al listener che il fd è di nuovo libero
 		// se non ha chiuso la connessione
-		#if defined DEBUG && defined VERBOSE
-			fprintf(stderr, "Operazione gestita, inizio comunicazione con il listener\n");
+		#ifdef DEBUG
+			fprintf(stderr, "%d: Operazione gestita\n", workerNumber);
 		#endif
 		if (!fdclose) {
+			#if defined DEBUG && defined VERBOSE
+				fprintf(stderr, "%d: fd non chiuso, comunicazione con il listener\n", workerNumber);
+			#endif
 			while(freefd_ack[workerNumber] == 1) {
-				pthread_kill(listener, SIGUSR2);
+				pthread_kill(signal_handler, SIGUSR2);
 				sched_yield();
 			}
 			freefd[workerNumber] = localfd;
 			freefd_ack[workerNumber] = 1;
-			pthread_kill(listener, SIGUSR2);
+			pthread_kill(signal_handler, SIGUSR2);
 			#if defined DEBUG && defined VERBOSE
 				fprintf(stderr, "%d: Restituito l'fd al listener\n", workerNumber);
 			#endif
@@ -1072,7 +1083,7 @@ int main(int argc, char *argv[]) {
 				}
 				else if (strncmp(paramName, "MaxConnections", 15) == 0) {
 					MaxConnections = strtol(paramValue, NULL, 10);
-					MaxConnections += 4; // Serve solo aumentata
+					MaxConnections += 5; // Serve solo aumentata
 					#if defined DEBUG && defined VERBOSE
 						fprintf(stderr, "Letto MaxConnections: %d\n", MaxConnections);
 					#endif
@@ -1142,12 +1153,46 @@ int main(int argc, char *argv[]) {
 	queue = create_fifo();
 	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
 	fdnum = createSocket(UnixPath);
-	assert(MaxConnections > fdnum);
+	if (fdnum != 3) {
+		if (dup2(fdnum, 3) < 0) {
+			perror("errore spostando il socket su fd 3");
+			exit(EXIT_FAILURE);
+		}
+		else {
+			close(fdnum);
+			fdnum = 3;
+		}
+	}
+	int pipefd[2];
+	if (pipe(pipefd) < 0) {
+		perror("creando la pipe");
+		exit(EXIT_FAILURE);
+	}
+	if (pipefd[0] != 4) {
+		if (dup2(pipefd[0], 4) < 0) {
+			perror("errore spostando il la pipe su fd 4");
+			exit(EXIT_FAILURE);
+		}
+		else {
+			close(pipefd[0]);
+		}
+	}
+	if (pipefd[1] != 2 + MaxConnections + ThreadsInPool) {
+		if (dup2(pipefd[1], 2 + MaxConnections + ThreadsInPool) < 0) {
+			perror("errore spostando la pipe su fd 2 + roba");
+			exit(EXIT_FAILURE);
+		}
+		else {
+			close(pipefd[1]);
+		}
+	}
+	pthread_t listener;
 	pthread_t pool[ThreadsInPool];
 	freefd = malloc(ThreadsInPool * sizeof(int));
 	freefd_ack = calloc(ThreadsInPool, sizeof(char));
 	pthread_mutex_init(&connected_mutex, NULL);
 	fd_to_nickname = calloc(MaxConnections, sizeof(char*));
+	signal_handler = pthread_self();
 	// Crea i vari thread
 	pthread_create(&listener, NULL, &listener_thread, NULL);
 	for (unsigned int i = 0; i < ThreadsInPool; ++i) {

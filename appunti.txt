@@ -28,6 +28,10 @@ listener deve leggere il valore. Non c'è bisogno di lock su questa comunicazion
 perché è a due entità, ognuna che lavora solo se l'ack ha il suo valore e che
 una volta finita l'elaborazione cambia l'ack al valore dell'altra (quindi
 agiscono per forza alternate).
+NON FUNZIONA RACE CONDITION: potrebbe arrivarmi un SIGUSR2 mentre controllo gli
+ack a 1 e quindi il listener si blocca sulla select. Quello che vorrei fare è
+atomicamente mascherare/smascherare SIGUSR1 e terminare/iniziare la select. La
+soluzione è un po' diversa, basata su http://sites.e-advies.nl/unix-signals.html
 
 Se il gestore dei segnali riceve un segnale SIGUSR1 lo gestisce scrivendo su file
 quello che deve scrivere (durante questa operazione non gestisce altri segnali).
@@ -40,17 +44,19 @@ creare l'elenco dei nickname connessi e per gestire le disconnessioni. Questa
 mappa è gestita con un array perché UNIX dovrebbe garantire che l'allocazione
 dei fd avvenga in ordine crescente, quindi fd_to_nickname (la mappa in questione)
 è sempre abbastanza piena (e quindi non c'è motivo di usare strutture dati più
-complesse). La dimensione di fd_to_nickname è MaxConnections + 4: questo,
+complesse). La dimensione di fd_to_nickname è MaxConnections + 5: questo,
 insieme alla politica di assegnamento dei fd e al fatto che non possono esserci
 più di MaxConnections contemporaneamente (il listener le rifiuta), garantisce
-che il massimo fd possibile sia MaxConnections + 4 (per stdin, stdout, strerr e
-il socket su cui vengono fatte le accept). In realtà viene fatto il contrario:
-il listener controlla che il nuovo fd sia minore di MaxConnections + 4 e in
-base a quello stabilisce se le connessioni hanno raggiunto il limite. Inoltre
-nel codice tutti i controlli avvengono con MaxConnections (senza +4) perché dato
-che viene usato solo aumentato l'operazione viene fatta una volta per tutte
-all'avvio del server. Per evitare problemi con le operazioni da file, i fd su
-cui vengono aperti i file sono sempre spostati a valori maggiori con dup2.
+che il massimo fd possibile sia MaxConnections + 5 (per stdin, stdout, strerr,
+il socket su cui vengono fatte le accept e la pipe). In realtà viene fatto il
+contrario: il listener controlla che il nuovo fd sia minore di MaxConnections + 5
+e in base a quello stabilisce se le connessioni hanno raggiunto il limite.
+Inoltre nel codice tutti i controlli avvengono con MaxConnections (senza +5)
+perché dato che viene usato solo aumentato l'operazione viene fatta una volta
+per tutte all'avvio del server. Per evitare problemi con le operazioni da file,
+i fd su cui vengono aperti i file sono sempre spostati a valori maggiori con
+dup2 (questo può causare il rifiuto di un client anche se non si è raggiunto
+MaxConnections, ma se il client riprova appena dopo viene accettato).
 
 In caso di errori durante l'esecuzione di una richiesta (es: REGISTER_OP con
 nickname già esistente) il server disconnette il client.
@@ -108,7 +114,17 @@ due client inviano due file con lo stesso nome insieme il server non si fa
 problemi a scrivere sul file da due thread diversi, con tutti gli errori che ne
 conseguono. Per evitare problemi con il numero massimo di connessioni (gestite
 con i numeri di fd) i fd dei file vengono sempre spostati con dup2 sul valore
-MaxConnections + 4 + workerNumber (così si evitano collisioni tra i worker).
+MaxConnections + 5 + workerNumber (così si evitano collisioni tra i worker).
+
+fd usati:
+0, 1, 2: stdin, stdout, stderr
+3: il socket su cui accetta connessioni
+4: read end della pipe per interrompere la select
+5 - 4+MaxConnections: dedicati ai socket su cui si possono connettere i client
+5+MaxConnections - 4+MaxConnections+ThreadsInPool: dedicati ai worker per aprire
+                                                 i file
+5+MaxConnections+ThreadsInPool: per scrivere sul file delle statistiche
+6+MaxConnections+ThreadsInPool: write end della pipe per interrompere la select
 
 La politica lettori-scrittori è gestita così:
 * lettore:
