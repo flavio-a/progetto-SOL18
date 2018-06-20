@@ -12,6 +12,10 @@ README.txt
 README.doxygen
 chatterbox18.pdf
 
+# relazione
+relazione/*
+!relazione/relazione.tex
+
 # tests, not removed
 #DATA/
 #testfile.sh

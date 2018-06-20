@@ -1,4 +1,4 @@
-/*
+/**
  * membox Progetto del corso di LSO 2017/2018
  *
  * Dipartimento di Informatica Università di Pisa
@@ -171,7 +171,11 @@ void signal_handler_thread(sigset_t* handled_signals) {
 		}
 		else if (sig_received == SIGUSR2) {
 			// Deve mandare un ack al listener tramite la pipe
-			write(list_pipefd, &listener_ack_val, 1);
+			while (write(list_pipefd, &listener_ack_val, 1) < 0) {
+				// Questa write non dovrebbe avere motivo di fallire
+				// Se fallisce semplicemente riprovo a mandare l'ack
+				perror("write, mandando ack al listener, riprovo");
+			}
 		}
 		else if (sig_received == SIGINT || sig_received == SIGTERM || sig_received == SIGQUIT) {
 			#ifdef DEBUG
@@ -179,7 +183,9 @@ void signal_handler_thread(sigset_t* handled_signals) {
 			#endif
 			threads_continue = false;
 			// Sblocca il listener scrivendogli sulla pipe
-			write(list_pipefd, &listener_ack_val, 1);
+			while (write(list_pipefd, &listener_ack_val, 1) < 0) {
+				perror("write, mandando ack al listener, riprovo");
+			}
 			// Sblocca i worker con un TERMINATION_FD
 			for (unsigned int i = 0; i < ThreadsInPool; ++i) {
 				ts_push(&queue, TERMINATION_FD);
@@ -231,8 +237,11 @@ void* listener_thread(void* arg) {
 			for (int fd = 0; fd <= fdnum; ++fd) {
 				if (FD_ISSET(fd, &rset)) {
 					if (fd == pipefd) {
-						// Cancella l'ack del signal handler
-						read(pipefd, &ack_buf, 1);
+						// Cancella tutti gli ack del signal handler
+						while (read(pipefd, &ack_buf, 1) != 0) {
+							// Non scrive niente, ma legge a ripetizione tutti
+							// gli ack. In caso di errore semplicemente riprova
+						}
 						// Controlla quali ack sono a 1 (eventualmente nessuno,
 						// in caso di segnali spurii)
 						for (int i = 0; i < ThreadsInPool; ++i) {
