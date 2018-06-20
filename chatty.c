@@ -211,7 +211,7 @@ void* listener_thread(void* arg) {
 	// Non c'è bisogno di leggerlo, deve esere 3 per forza
 	const int ssfd = 3;
 	const int pipefd = 4;
-	char ack_buf;
+	char ack_buf[ThreadsInPool];
 
 	// Preparazione iniziale del fd_set
 	fd_set set, rset;
@@ -237,10 +237,12 @@ void* listener_thread(void* arg) {
 			for (int fd = 0; fd <= fdnum; ++fd) {
 				if (FD_ISSET(fd, &rset)) {
 					if (fd == pipefd) {
-						// Cancella tutti gli ack del signal handler
-						while (read(pipefd, &ack_buf, 1) != 0) {
-							// Non scrive niente, ma legge a ripetizione tutti
-							// gli ack. In caso di errore semplicemente riprova
+						// Cancella tutti gli ack del signal handler. Visto che
+						// gli ack dovrebbero arrivare solo dai worker,
+						// dovrebbero essere al massimo ThreadsInPool
+						while (read(pipefd, ack_buf, ThreadsInPool) < 0) {
+							perror("errore leggendo gli ack, riprovo");
+							// In caso di errore semplicemente riprova
 						}
 						// Controlla quali ack sono a 1 (eventualmente nessuno,
 						// in caso di segnali spurii)
