@@ -25,7 +25,16 @@
 /**
  * @struct nickname
  * @brief Questa struttura dati contiene tutte le informazioni relative ad un
- * nickname. La history viene gestita con una coda circolare.
+ * nickname.
+ *
+ * La history viene gestita con una coda circolare, da scorrere all'indietro per
+ * avere i messaggi in ordine cronologico (dal più nuovo). Per controllare se
+ * la coda circolare è piena, l'ultimo elemento viene inizializzato con una
+ * operazione apposta, OP_FAKE_MSG: quando la coda viene riempita per la prima
+ * volta, l'ultimo elemento viene sovrascritto e la sua operazione diventa
+ * regolare. La variabile first contiene l'indice dell'ultimo elemento inserito,
+ * e viene aumentata (modulo hist_size) ogni volta che si vuole aggiungere un
+ * nuovo elemento.
  *
  * @var struct nickname::fd Il fd su cui è aperta la connessione con il client
  *                          connesso con quel nickname. Se fd è 0 vuol dire che
@@ -44,6 +53,12 @@ typedef struct nickname {
 /**
  * @brief Itera su tutta l'history. Si aspetta che il lock su nick->mutex sia
  * già stato acquisito.
+ *
+ * Questa macro funziona pensando l'array circolare come replicato dagli indici
+ * [0; hist_size) e [hist_size; 2 * hist_size), e scorre da (first + hist_size)
+ * a (first + 1) scendendo. Se la history non è piena si ferma a hist_size.
+ *
+ * \image html immagine_history_foreach.png
  *
  * @param nick (nickname_t*) Il nickname sulla cui history si vuole iterare.
  * @param i (int) L'indice nella history, va usato sempre modulo hist_size (si

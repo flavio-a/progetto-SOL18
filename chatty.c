@@ -49,6 +49,7 @@
  * è definita in stats.h.
  */
 statistics chattyStats = { 0,0,0,0,0,0,0 };
+pthread_mutex_t stats_mutex;
 
 /**
  * Coda condivisa che contiene i messaggi
@@ -81,7 +82,6 @@ htable_t* nickname_htable;
  */
 int num_connected = 0;
 char** fd_to_nickname;
-int fdnum;
 pthread_mutex_t connected_mutex;
 
 /**
@@ -212,6 +212,8 @@ void* listener_thread(void* arg) {
 	const int ssfd = 3;
 	const int pipefd = 4;
 	char ack_buf[ThreadsInPool];
+	// Indice del massimo fd atteso nella select
+	int fdnum = pipefd;
 
 	// Preparazione iniziale del fd_set
 	fd_set set, rset;
@@ -270,14 +272,14 @@ void* listener_thread(void* arg) {
 						// Accetta al massimo MaxConnections dai client
 						if (newfd < MaxConnections) {
 							FD_SET(newfd, &set);
-							// Non serve la lock perché il listener è l'unico che
-							// modifica fdnum
 							if (newfd > fdnum) {
 								fdnum = newfd;
 							}
 						}
 						else {
+							error_handling_lock(&stats_mutex);
 							++chattyStats.nerrors;
+							error_handling_unlock(&stats_mutex);
 							close(newfd);
 						}
 					}
@@ -312,7 +314,9 @@ void* listener_thread(void* arg) {
 	setHeader(&response.hdr, err_op, ""); \
 	if (!sendHdrResponse(fd, &response.hdr)) \
 		disconnectClient(fd); \
-	++chattyStats.nerrors
+	error_handling_lock(&stats_mutex); \
+	++chattyStats.nerrors; \
+	error_handling_unlock(&stats_mutex)
 
 /**
  * @brief Risponde con un errore ad un client, ma potrebbe non chiudere la connessione.
@@ -325,7 +329,9 @@ void* listener_thread(void* arg) {
 #define sendSoftFailResponse(response, fd, err_op, fdclose) \
 	setHeader(&response.hdr, err_op, ""); \
 	fdclose = sendHdrResponse(fd, &response.hdr); \
-	++chattyStats.nerrors
+	error_handling_lock(&stats_mutex); \
+	++chattyStats.nerrors; \
+	error_handling_unlock(&stats_mutex)
 
 /**
  * @brief Modifica le strutture dati necessarie alla disconnessione di un client
@@ -387,7 +393,7 @@ void connectClient(char* nick, int fd, nickname_t* nick_data) {
 void responseConnectedList(message_t* msg) {
 	int p = 0;
 	char* conn_list = malloc(num_connected * sizeof(char) * (MAX_NAME_LENGTH + 1));
-	for (int i = 0; i < fdnum + 1; ++i) {
+	for (int i = 0; i < MaxConnections; ++i) {
 		if (fd_to_nickname[i] != NULL) {
 			strncpy(conn_list + p * (MAX_NAME_LENGTH + 1), fd_to_nickname[i], MAX_NAME_LENGTH + 1);
 			++p;
@@ -683,12 +689,17 @@ void* worker_thread(void* arg) {
 									// il server se lo tiene nell'history e poi sarà
 									// il client a chiedergli di nuovo il messaggio.
 									sendRequest(receiver->fd, &msg);
+									error_handling_unlock(&(receiver->mutex));
+									error_handling_lock(&stats_mutex);
 									++chattyStats.ndelivered;
+									error_handling_unlock(&stats_mutex);
 								}
 								else {
+									error_handling_unlock(&(receiver->mutex));
+									error_handling_lock(&stats_mutex);
 									++chattyStats.nnotdelivered;
+									error_handling_unlock(&stats_mutex);
 								}
-								error_handling_unlock(&(receiver->mutex));
 								// Mette a NULL in modo che non venga deallocato
 								msg.data.buf = NULL;
 								setHeader(&response.hdr, OP_OK, "");
@@ -731,12 +742,17 @@ void* worker_thread(void* arg) {
 								add_to_history(val, msg);
 								if (val->fd > 0) {
 									sendRequest(val->fd, &msg);
+									error_handling_unlock(&(val->mutex));
+									error_handling_lock(&stats_mutex);
 									++chattyStats.ndelivered;
+									error_handling_unlock(&stats_mutex);
 								}
 								else {
+									error_handling_unlock(&(val->mutex));
+									error_handling_lock(&stats_mutex);
 									++chattyStats.nnotdelivered;
+									error_handling_unlock(&stats_mutex);
 								}
-								error_handling_unlock(&(val->mutex));
 							}
 							msg.data.buf = original_buffer;
 							setHeader(&response.hdr, OP_OK, "");
@@ -830,11 +846,14 @@ void* worker_thread(void* arg) {
 										sendRequest(receiver->fd, &msg);
 										// Non aumenta i file consegnati perché
 										// viene fatto quando finisce GETFILE_OP
+										error_handling_unlock(&(receiver->mutex));
 									}
 									else {
+										error_handling_unlock(&(receiver->mutex));
+										error_handling_lock(&stats_mutex);
 										++chattyStats.nfilenotdelivered;
+										error_handling_unlock(&stats_mutex);
 									}
-									error_handling_unlock(&(receiver->mutex));
 									// Mette a NULL in modo che non venga deallocato
 									msg.data.buf = NULL;
 									setHeader(&response.hdr, OP_OK, "");
@@ -907,7 +926,9 @@ void* worker_thread(void* arg) {
 								setHeader(&response.hdr, OP_OK, "");
 								setData(&response.data, "", mappedfile, st.st_size);
 								fdclose = sendMsgResponse(localfd, &response);
+								error_handling_lock(&stats_mutex);
 								++chattyStats.nfiledelivered;
+								error_handling_unlock(&stats_mutex);
 							}
 							close(MaxConnections + workerNumber);
 							free(full_filename);
@@ -1106,15 +1127,14 @@ int main(int argc, char *argv[]) {
 	// Crea le strutture condivise
 	queue = create_fifo();
 	nickname_htable = hash_create(NICKNAME_HASH_BUCKETS_N, MaxHistMsgs);
-	fdnum = createSocket(UnixPath);
-	if (fdnum != 3) {
-		if (dup2(fdnum, 3) < 0) {
+	int socketfd = createSocket(UnixPath);
+	if (socketfd != 3) {
+		if (dup2(socketfd, 3) < 0) {
 			perror("errore spostando il socket su fd 3");
 			exit(EXIT_FAILURE);
 		}
 		else {
-			close(fdnum);
-			fdnum = 3;
+			close(socketfd);
 		}
 	}
 	int pipefd[2];
@@ -1150,6 +1170,7 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 	pthread_mutex_init(&connected_mutex, NULL);
+	pthread_mutex_init(&stats_mutex, NULL);
 	signal_handler = pthread_self();
 	// Crea i vari thread
 	pthread_create(&listener, NULL, &listener_thread, NULL);
@@ -1189,7 +1210,7 @@ int main(int argc, char *argv[]) {
 	#if defined DEBUG && defined VERBOSE
 		fprintf(stderr, "Svuoto fd_to_nickname\n");
 	#endif
-	for (int i = 0; i < fdnum; ++i) {
+	for (int i = 0; i < MaxConnections; ++i) {
 		if (fd_to_nickname[i] != NULL) {
 			free(fd_to_nickname[i]);
 		}
@@ -1197,6 +1218,7 @@ int main(int argc, char *argv[]) {
 	free(fd_to_nickname);
 	// Non ci sono altri thread oltre a main, quindi nessuno ha il lock
 	pthread_mutex_destroy(&connected_mutex);
+	pthread_mutex_destroy(&stats_mutex);
 	#if defined DEBUG && defined VERBOSE
 		fprintf(stderr, "Elimino l'hashtable\n");
 	#endif

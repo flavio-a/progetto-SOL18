@@ -11,10 +11,12 @@ libchatty.a
 README.txt
 README.doxygen
 chatterbox18.pdf
+FlavioAscari_CorsoB_chatty.tar
 
 # relazione
 relazione/*
-!relazione/relazione.tex
+!relazione/*.tex
+!relazione/*.png
 
 # tests, not removed
 #DATA/

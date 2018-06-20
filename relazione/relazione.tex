@@ -110,7 +110,7 @@ La gestione del server avviene con 2 + \codeName{ThreadsInPool} thread:
 \end{itemize}
 
 
-\subsection{Protocollo di comunicazione client-server}
+\subsection{Protocollo di comunicazione client-server}\label{comunicazioni-client-server}
 Su \file{connections.h} è documentato il protocollo di comunicazione client-server.
 
 Su \file{message.h} sono documentati i dettagli delle comunicazioni a seconda del messaggio: messaggio che il client invia al server, risposta del server, possibili errori.
@@ -148,61 +148,61 @@ La comunicazione dal \codeName{signal handler} agli altri thread serve per segna
 Questo protocollo di terminazione ha il problema che potrebbe dover prima eseguire fino ad una operazione della coda condivisa per ogni \codeName{worker}, ma non ha problemi di terminazione. Infatti l'unica chiamata bloccante nel codice del \codeName{listener} è la \codeName{select}, che non può bloccarlo perché riceve il segnale sulla pipe interna, mentre gli unici punti in cui può bloccarsi un \codeName{worker} sono la \codeName{pop} dalla coda condivisa (che non può bloccare dato che in coda c'è almeno un \codeName{TERMINATION\_FD} per ogni \codeName{worker}) e la comunicazione con il \codeName{listener}, che non può bloccare perché prima di terminare il \codeName{listener} legge tutti i messaggi che erano rimasti pendenti.
 
 \subsection{Strutture dati condivise}\label{strutture-dati}
-Le strutture dati condivise sono:
+Ci sono molte strutture dati condivise.
+
+\
+
+Le statistiche \codeName{chattyStats} e la relativa mutex \codeName{stats\_mutex}, che serve perché le statistiche possono essere modificate da più thread.
+
+\
+
+La coda condivisa \codeName{queue}, usata per passare i fd dal \codeName{listener} ai \codeName{workers}, gestita con la classica politica produttore-consumatore, sfrutta una variabile di condizione per far attendere i consumatori quando la coda è vuota (essendo gestita con una lista non c'è una capienza massima, quindi il produttore non aspetta mai).
+
+\
+
+Due array \codeName{freefd} e \codeName{freefd\_ack}, usati per implementare il protocollo di comunicazione \codeName{worker} $\rightarrow$ \codeName{listener} (vedi \autoref{comunicazioni-interne}).
+
+\
+
+L'hashtable \codeName{nickname\_htable} dei nickname, che contiene l'associazione nickname $\rightarrow$ informazioni sul nickname per ogni nickname registrato. Le informazioni sul nickname sono una variabile di tipo \codeName{nickname\_t}, definito appositamente. Gestisce la sua sincronizzazione con una mutex interna.
+
+Sincronizza solo le operazioni di scrittura e non quelle di lettura (\codeName{hash\_find}). Questo è possibile perché le operazioni di scrittura lasciano in ogni momento l'hashtable in uno stato consistente: l'inserimento prima crea il nuovo elemento, inizializzandolo con tutti i valori, e lo inserisce nell'hashtable con un solo assegnamento (quindi atomico), dividendo quindi tra prima dell'assegnamento (in cui il nuovo valore non è nell'hashtable) e dopo (in cui è presente). La rimozione funziona allo stesso modo invertendo l'ordine delle operazioni. In questo modo le ricerche (unica operazioni di lettura) può trovare o meno l'elemento, ma in entrambi i casi è coerente.
+
+La rimozione potenzialmente può cancellare un elemento che sta venendo usato all'esterno dell'hashtable (perché ritornato precedentemente da un'operazione di find). Questo non si verifica in chatty perché l'unico caso in cui si rimuove un elemento dall'hashtable è dietro richiesta di UNREGISTER\_OP, che può essere eseguita solo dal \codeName{worker} che AHAHAHAHA NON È VERO POSSO STARGLI MANDANDO UN MESSAGGIO AHAHAHAH.
+
+\
+
+Alcune variabili per gestire i client connessi (non quelli che hanno un socket aperto con il server, ma proprio quelli che hanno fatto un'operazione \codeName{CONNECT\_OP} o \codeName{REGISTER\_OP}): \codeName{num\_connected} che contiene il numero di client connessi, l'array \codeName{fd\_to\_nickname} che serve come mappa fd $\rightarrow$ nickname, e la mutex \codeName{connected\_mutex} per sincronizzare l'accesso a queste variabili.
+
+L'hashtable dei nickname permette di avere una mappa nickname $\rightarrow$ fd per i client connessi. Alcune operazioni (per esempio per rispondere la lista di tutti gli utenti connessi, oppure per gestire le disconnessioni) però necessitano di sapere quale nickname è connesso su un certo, fd, da cui la necessità della mappa inversa, ottenuta grazie a \codeName{fd\_to\_nickname}. È possibile gestire questa mappa con un array perché UNIX garantisce che l'allocazione dei fd avvenga in ordine crescente, perciò \codeName{fd\_to\_nickname} risulta sempre abbastanza piena e non troppo grande (dato che vengono accettate al più MaxConnections).
+
+La dimensione di \codeName{fd\_to\_nickname} è \codeName{MaxConnections} + 5: questo, insieme alla politica di assegnazione dei fd e al fatto che non possono esserci più di MaxConnections contemporaneamente (il listener le rifiuta), garantisce che il massimo fd su cui si può connettere un client sia \codeName{MaxConnections} + 4 (vedere \autoref{comunicazioni-client-server}). In realtà viene fatto il contrario: il \codeName{listener}, quando accetta una connessione da un client, controlla che il nuovo fd sia minore di \codeName{MaxConnections} + 5 per stabilire se le connessioni hanno raggiunto il limite.
+
+Le operazioni sui file creano nuovi fd che il sistema assegna a valori nell'intervallo riservato ai socket dei client. Questo può in effetti causare il rifiuto di una connessione anche se non si è raggiunto \codeName{MaxConnections}, ma dato che questi fd vengono subito spostati con \codeName{dup2} il client deve semplicemente riprovare a connettersi.
+
+\
+
+La variabili \codeName{threads\_continue}, usata dal \codeName{signal handler} nel segnalare la terminazione agli altri thread (vedi \autoref{comunicazioni-interne}).
+
+\
+
+I parametri di configurazione e il tid del \codeName{signal handler}, condivisi solo per comodità.
+
+\subsection{Sincronizzazione}\label{sincronizzazione}
+Sul server ci sono tre livelli di lock per gestire le modifiche dovute ai client ed eseguite dai worker sulle strutture dati condivise.
 \begin{itemize}
-	\item queue
-	\item nickname\_htable
-	\item fd\_to\_nickname
-	\item 
+	\item La mutex interna di \codeName{nickname\_htable}, che serve solo ad evitare che scritture, rimozioni e distruzione dell'intera hashtable siano sincronizzate (non viene mai usata esplicitamente, solo tramite la libreria \file{hashtable.h}).
+	\item La mutex globale \codeName{connected\_mutex}, che serve per sincronizzare \codeName{num\_connected} e
+\codeName{fd\_to\_nickname}.
+
+\codeName{fd\_to\_nickname}[i] viene utilizzato esclusivamente in lettura da tutti i \codeName{worker} tranne quello che sta gestendo il fd i. Dato che ogni \codeName{worker} gestisce un solo fd alla volta, questo riduce il numero di lock necessari per accedervi: il \codeName{worker} che sta trattando fd infatti non ha bisogno di lock in lettura perché nessun altro thread sta trattando fd, quindi non possono esserci scrittori contemporanei alla sua lettura. Gli altri thread invece devono sincronizzare le letture per attendere le scritture dell'eventuale \codeName{worker} che sta gestendo fd.
+
+\codeName{num\_connected} invece va sincronizzato completamente perché tutti i \codeName{worker} possono accedervi sia in lettura che in scrittura.
+	\item Le mutex dei singoli \codeName{nickname\_t}, che servono a sincronizzare qualsiasi modifica interna alla struttura dati.
 \end{itemize}
-Oltre all'hashtable dei nickname c'è una mappa fd->nickname, utilizzata per
-creare l'elenco dei nickname connessi e per gestire le disconnessioni. Questa
-mappa è gestita con un array perché UNIX dovrebbe garantire che l'allocazione
-dei fd avvenga in ordine crescente, quindi fd\_to\_nickname (la mappa in questione)
-è sempre abbastanza piena (e quindi non c'è motivo di usare strutture dati più
-complesse). La dimensione di fd\_to\_nickname è MaxConnections + 5: questo,
-insieme alla politica di assegnamento dei fd e al fatto che non possono esserci
-più di MaxConnections contemporaneamente (il listener le rifiuta), garantisce
-che il massimo fd possibile sia MaxConnections + 5 (per stdin, stdout, strerr,
-il socket su cui vengono fatte le accept e la pipe). In realtà viene fatto il
-contrario: il listener controlla che il nuovo fd sia minore di MaxConnections + 5
-e in base a quello stabilisce se le connessioni hanno raggiunto il limite.
-Inoltre nel codice tutti i controlli avvengono con MaxConnections (senza +5)
-perché dato che viene usato solo aumentato l'operazione viene fatta una volta
-per tutte all'avvio del server. Per evitare problemi con le operazioni da file,
-i fd su cui vengono aperti i file sono sempre spostati a valori maggiori con
-dup2 (questo può causare il rifiuto di un client anche se non si è raggiunto
-MaxConnections, ma se il client riprova appena dopo viene accettato).
+La garanzia che al più un \codeName{worker} stia gestendo un certo fd viene dal fatto che il \codeName{listener} mette in coda solo fd su cui ha ricevuto una richiesta, cosa che può succedere solo se ha appena accettato un nuovo socket (creando il fd) o se quel fd gli è stato restituito dal \codeName{worker} che lo stava gestendo prima.
 
-Per scorrere la history c'è una macro che funziona pensando la history
-circolare come replicata dagli indici [0; hist\_size) e [hist\_size; 2 hist\_size),
-e scorre da (first + hist\_size) a (first + 1) scendendo. Se la history non
-è piena si ferma a hist\_size.
-
-
-Ci sono tre livelli di lock su chatty per gestire le modifiche dovute ai client:
-* la mutex interna dell'hashtable, che serve solo ad evitare che scritture,
-rimozioni e distruzione dell'intera hashtable siano sincronizzate (non viene
-mai usata esplicitamente, solo tramite la libreria hashtable.h)
-* la mutex globale connected\_mutex, che serve per sincronizzare num\_connected,
-fd\_to\_nickname e fdnum.
-fdnum può essere scritta solo dal listener e, fuori da esso, viene usata solo
-come limite superiore per fd\_to\_nickname. Dato che anche questo array può
-essere allungato solo dal listener e il listener lo allunga solo per
-rispondere ad un nuovo possibile fd (che quindi non è ancora stato passato a
-nessun worker) basta assicurarsi di modificare fdnum solo DOPO aver allungato
-fd\_to\_nickname per garantire il funzionamento dei worker.
-fd\_to\_nickname[fd] viene utilizzato solo in lettura da tutti i worker tranne
-quello che sta gestendo fd. Dato che ogni worker gestisce un solo fd, questo
-riduce il numero di lock necessarie per accedervi: il worker che sta trattando
-fd infatti non ha bisogno di lock in lettura perché nessun altro thread sta
-trattando fd, quindi non possono esserci scrittori contemporanei alla sua
-lettura. Gli altri thread invece devono sincronizzare le letture per attendere
-le scritture dell'eventuale worker che sta gestendo fd.
-num\_connected va sincronizzato completamente perché tutti i worker possono
-accedervi sia in lettura che in scrittura.
-* le mutex dei singoli nickname\_t, che servono a sincronizzare qualsiasi modifica alla struttura dati.
-La garanzia che un solo worker stia gestendo un fd viene dal fatto che il listener mette in coda solo fd su cui ha aperto nuove connessioni, cosa che può succedere solo se l'fd è stato chiuso dal worker che lo stava gestendo prima. Ci sono casi in cui un thread acquisisce sia connected\_mutex che la mutex di un nickname\_t. Per evitare deadlock, connected\_mutex viene sempre acquisita prima.
+Ci sono casi in cui un thread acquisisce sia \codeName{connected\_mutex} che la mutex di un \codeName{nickname\_t}. Per evitare deadlock, \codeName{connected\_mutex} viene sempre acquisita prima.
 
 \subsection{Gestione dei segnali}\label{gestione-segnali}
 Il server gestisce i segnali richiesti (\textbf{SIGINT}, \textbf{SIGTERM}, \textbf{SIGQUIT}, \textbf{SIGUSR1}) e il segnale \textbf{SIGUSR2}, usato internamente per la comunicazione tra thread.
@@ -250,9 +250,9 @@ Oltre ai test forniti dai docenti ho realizzato alcuni test per verificare il fu
 \subsection{Test fisici}
 Ho provato il programma sul mio computer personale (Debian 10 "Buster", processore x64, 2 core, 4 processori virtuali) e su un altro computer fisso (Debian 9 "Stretch", processore x64, 2 core, 4 processori virtuali). Inoltre sul mio computer personale ho avviato la macchina virtuale del corso (Xubuntu 14.10, 2 processori virtuali). Su tutte queste macchine ho eseguito con successo tutti e 5 i test presentati dai docenti.
 
-Inoltre sul mio computer personale ho eseguito con successo i test aggiuntivi preparati da me per i moduli del progetto. Ho eseguito ulteriori test del server durante lo sviluppo, ma li ho realizzati avviando il server e alcuni client da linea di comando, senza nessuno script.
+Inoltre sul mio computer personale ho eseguito con successo i test aggiuntivi preparati da me per i moduli del progetto. Ho eseguito ulteriori test del server durante lo sviluppo, ma li ho realizzati avviando il server e alcuni client da linea di comando, senza nessuno script, perché avevo bisogno di provare volta per volta situazioni diverse.
 
-\section{Varie ed eventuali}
+\section{Altro}
 \subsection{Difficoltà incontrate}\label{difficolta}
 NON FUNZIONA RACE CONDITION: potrebbe arrivarmi un SIGUSR2 mentre controllo gli ack a 1 e quindi il listener si blocca sulla select. Quello che vorrei fare è atomicamente mascherare/smascherare SIGUSR1 e terminare/iniziare la select. La soluzione è un po' diversa, basata su 
 
