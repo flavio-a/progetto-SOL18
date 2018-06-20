@@ -3,13 +3,6 @@
  *
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
- *
- * Si dichiara che parte del contenuto di questo file (la documentazione) è
- * opera originale dell'autore.
- *
- * @author Flavio Ascari
- *		 550341
- *       flavio.ascari@sns.it
  */
 
 #ifndef MESSAGE_H_
@@ -24,8 +17,89 @@
  * @file  message.h
  * @brief Libreria per i messaggi
  *
+ * Si dichiara che parte del contenuto di questo file (la documentazione) è
+ * opera originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
+ *
  * Questo file contiene il formato dei messaggi message_t insieme ad alcune
- * funzioni di utilità per manipolare questo formato
+ * funzioni di utilità per manipolare questo formato.
+ *
+ * I client inviano al server messaggi che hanno come op una di quelle permesse.
+ * Il formato delle richieste dipende dall'operazione:
+ * - REGISTER_OP: conta solo msg.hdr.sender, che contiene il nick da registrare.
+                  Errori: OP_NICK_ALREADY (nickname già registrato)
+ * - UNREGISTER_OP: conta solo msg.hdr.sender, che deve corrispondere a quello
+                    usato per la precedente operazione di connessione.
+                    Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                    OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                    connesso)
+ * - CONNECT_OP: conta solo msg.hdr.sender, che contiene il nickname con cui
+                 connettersi.
+                 Errori: OP_NICK_CONN (nickname già connesso), OP_NICK_UNKNOWN (
+                 nickname inesistente)
+ * - DISCONNECT_OP: non serve nessuna informazione. Errori: nessuno
+ * - USRLIST_OP: non serve nessuna informazione. Errori: nessuno
+ * - POSTTXT_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
+                 connessi precedentemente), msg.data.hdr.receiver è il nick di
+                 chi deve ricevere il messaggio, msg.data.hdr.len è la lunghezza
+                 del buffer (incluso il terminatore \0), msg.data.buf deve
+                 essere una stringa C valida (quindi con il terminatore \0).
+                 Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                 OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                 connesso), OP_MSG_INVALID (messaggio non valido),
+                 OP_MSG_TOOLONG (messaggio troppo lungo), OP_DEST_UNKNOWN (
+                 destinatario sconosciuto)
+ * - POSTTXTALL_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
+                    connessi precedentemente), msg.data.hdr.len è la lunghezza
+                    del buffer (incluso il terminatore \0), msg.data.buf deve
+                    essere una stringa C valida.
+                    Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                    OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                    connesso), OP_MSG_INVALID (messaggio non valido)
+ * - GETPREVMSGS_OP: conta solo msg.hdr.sender, che però deve essere il proprio
+                     nick (con cui ci si è connessi precedentemente).
+                     Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                     OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                     connesso)
+ * - POSTFILE_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
+                  connessi precedentemente), msg.data.hdr.receiver è il nick di
+                  chi deve ricevere il file, msg.data.hdr.len è la lunghezza
+                  del buffer (incluso il terminatore \0), msg.data.buf contiene
+                  il nome del file in una stringa C valida. A questo segue
+                  l'invio effettivo del file, ovvero un message_data_t con
+                  queste caratteristiche: data.hdr.receiver è una stringa vuota,
+                  data.hdr.len è la lunghezza del file e data.buf è l'intero
+                  file.
+                  Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                  OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                  connesso), OP_FAIL (errore del server lavorando sul file),
+                  OP_MSG_TOOLONG (file troppo grande), OP_DEST_UNKNOWN (
+                  destinatario sconosciuto)
+ * - GETFILE_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
+                 connessi precedentemente), msg.data.hdr.len è la lunghezza
+                 del buffer (incluso il terminatore \0), msg.data.buf contiene
+                 il nome del file in una stringa C valida.
+                 Errori: OP_NICK_UNKNOWN (richiesta da nickname sconosciuto),
+                 OP_WRONG_FD (richiesta da un nickname su un fd su cui non è
+                 connesso), OP_FAIL (errore del server lavorando sul file),
+                 OP_NO_SUCH_FILE (file inesistente),
+ * Se il client trasmette un messaggio con un'operazione diversa da una di
+ * questa, il server risponde OP_FAIL.
+ *
+ * Le risposte del server possono essere dei seguenti tipi:
+ * - Codice di errore, in quel caso contiene solo l'header
+ * - OP_OK, nessun dato (risposta di default)
+ * - OP_OK, lista degli utenti connessi: il buffer deve essere una stringa
+          formata dai nomi dei client connessi, facendo occupare ad ogni nome
+          MAX_NAME_LENGTH + 1 caratteri (non utilizzando quelli dopo \0)
+ * - OP_OK, lista dei messaggi: il buffer deve essere un size_t* che contiene il
+          di messaggi della history (non importa il valore di msg.data.hdr.len).
+          All'invio di questa risposta deve seguire l'invio dei messaggi salvati
+          nella history.
+ * - OP_OK, file: il buffer contiene l'intero file.
  */
 
 
@@ -85,52 +159,6 @@ typedef struct {
  * divisa in due parti: un header della parte dati, di tipo message_data_hdr_t,
  * ed un puntatore ad un buffer, la cui lunghezza è indicata nell'header, che
  * contiene proprio i dati da inviare
- *
- * I client inviano al server messaggi che hanno come op una di quelle permesse.
- * Il formato delle richieste dipende dall'operazione:
- * - REGISTER_OP: conta solo msg.hdr.sender, che contiene il nick da registrare
- * - UNREGISTER_OP: conta solo msg.hdr.sender, che deve corrispondere a quello
-                    usato per la precedente operazione di connessione
- * - CONNECT_OP: conta solo msg.hdr.sender, che contiene il nickname con cui
-                 connettersi
- * - DISCONNECT_OP: non serve nessuna informazione
- * - USRLIST_OP: non serve nessuna informazione
- * - POSTTXT_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
-                 connessi precedentemente), msg.data.hdr.receiver è il nick di
-                 chi deve ricevere il messaggio, msg.data.hdr.len è la lunghezza
-                 del buffer (incluso il terminatore \0), msg.data.buf deve
-                 essere una stringa C valida (quindi con il terminatore \0)
- * - POSTTXTALL_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
-                    connessi precedentemente), msg.data.hdr.len è la lunghezza
-                    del buffer (incluso il terminatore \0), msg.data.buf deve
-                    essere una stringa C valida
- * - GETPREVMSGS_OP: conta solo msg.hdr.sender, che però deve essere il proprio
-                     nick (con cui ci si è connessi precedentemente)
- * - POSTFILE_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
-                  connessi precedentemente), msg.data.hdr.receiver è il nick di
-                  chi deve ricevere il file, msg.data.hdr.len è la lunghezza
-                  del buffer (incluso il terminatore \0), msg.data.buf contiene
-                  il nome del file in una stringa C valida. A questo segue
-                  l'invio effettivo del file, ovvero un message_data_t con
-                  queste caratteristiche: data.hdr.receiver è una stringa vuota,
-                  data.hdr.len è la lunghezza del file e data.buf è l'intero
-                  file.
- * - GETFILE_OP: msg.hdr.sender deve essere il proprio nick (con cui ci si è
-                 connessi precedentemente), msg.data.hdr.len è la lunghezza
-                 del buffer (incluso il terminatore \0), msg.data.buf contiene
-                 il nome del file in una stringa C valida.
- *
- * Le risposte del server possono essere dei seguenti tipi:
- * - Codice di errore, in quel caso contiene solo l'header
- * - OP_OK, nessun dato (risposta di default)
- * - OP_OK, lista degli utenti connessi: il buffer deve essere una stringa
-          formata dai nomi dei client connessi, facendo occupare ad ogni nome
-          MAX_NAME_LENGTH + 1 caratteri (non utilizzando quelli dopo \0)
- * - OP_OK, lista dei messaggi: il buffer deve essere un size_t* che contiene il
-          di messaggi della history (non importa il valore di msg.data.hdr.len).
-          All'invio di questa risposta deve seguire l'invio dei messaggi salvati
-          nella history.
- * - OP_OK, file: il buffer contiene l'intero file.
  *
  * @var message_t::hdr
  * header

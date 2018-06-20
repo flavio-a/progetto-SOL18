@@ -154,7 +154,7 @@ void signal_handler_thread(sigset_t* handled_signals) {
 			}
 			else {
 				close(filefd);
-				if (dprintf(statsfd, "<%ld - %d %d %ld %ld %ld %ld %ld >\n",
+				if (dprintf(statsfd, "%ld - %d %d %ld %ld %ld %ld %ld\n",
 			                 time(NULL),
 							 nickname_htable->htable->nentries,
 							 num_connected,
@@ -483,7 +483,7 @@ bool checkConnected(char* nick, int fd, nickname_t* nick_data) {
 		#ifdef DEBUG
 			fprintf(stderr, "Richiesta su un fd diverso da quello del nickname\n");
 		#endif
-		sendFatalFailResponse(response, fd, OP_FAIL);
+		sendFatalFailResponse(response, fd, OP_WRONG_FD);
 		return false;
 	}
 	return true;

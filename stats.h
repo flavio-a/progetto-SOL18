@@ -12,8 +12,12 @@
   * In questo file viene definito il formato delle statistiche, insieme ad
   * alcune funzioni di utilità
   *
+  * Si dichiara che il contenuto di questo file, eccetto per questo commento,
+  * non è stato modificato in nessun modo dall'originale fornito dai docenti.
+  *
   * @author Flavio Ascari
   *         550341
+  *         flavio.ascari@sns.it
   */
 #if !defined(MEMBOX_STATS_)
 #define MEMBOX_STATS_

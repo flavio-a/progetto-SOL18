@@ -12,6 +12,13 @@
 /**
  * @file  ops.h
  * @brief Contiene i codici delle operazioni di richiesta e risposta
+ *
+ * Si dichiara che tutto il contenuto di questo file che non era nell'originale
+ * fornito dai docenti è opera originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  */
 
 
@@ -60,6 +67,7 @@ typedef enum {
 
     // alias se no il client di prova non capisce niente
     OP_NICK_CONN    = OP_FAIL, // nickname già connesso su un altro fd
+    OP_WRONG_FD     = OP_FAIL, // nickname non connesso su quel fd
     OP_MSG_INVALID  = OP_FAIL, // messaggio invalido secondo il server
     OP_DEST_UNKNOWN = OP_FAIL, // destinatario sconosciuto
 

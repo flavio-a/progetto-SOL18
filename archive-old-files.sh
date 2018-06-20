@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Si dichiara che il contenuto di questo file è in ogni sua parte opera
+# originale dell'autore.
+#
+# Flavio Ascari
+#	550341
+#   flavio.ascari@sns.it
+
 TMPARCHIVE="/tmp/chatty-tmp-archive/"
 
 if [[ -z $1 ]] || [[ $# == "--help" ]] || [[ $# == "-h" ]]; then

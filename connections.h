@@ -3,14 +3,6 @@
  *
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
- *
- *
- * Si dichiara che parte del contenuto di questo file (la documentazione) è
- * opera originale dell'autore.
- *
- * @author Flavio Ascari
- *		 550341
- *       flavio.ascari@sns.it
  */
 
 #ifndef CONNECTIONS_H_
@@ -37,6 +29,13 @@
  * @file  connections.h
  * @brief Contiene le funzioni che implementano il protocollo
  *        tra i clients ed il server
+ *
+ * Si dichiara che parte del contenuto di questo file (la documentazione) è
+ * opera originale dell'autore.
+ *
+ * @author Flavio Ascari
+ *		 550341
+ *       flavio.ascari@sns.it
  *
  * La comunicazione avviene tramite scambio di messaggi. I messaggi sono di
  * tipo message_t, divisi in due parti (vedere la documentazione del tipo per

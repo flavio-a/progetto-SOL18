@@ -111,48 +111,43 @@ La gestione del server avviene con 2 + \codeName{ThreadsInPool} thread:
 
 
 \subsection{Protocollo di comunicazione client-server}
-Su connections.h è documentato il protocollo di comunicazione client-server
+Su \file{connections.h} è documentato il protocollo di comunicazione client-server.
 
-Vedere message.h per i dettagli su come vengono mandati i messaggi, le risposte,
-i possibili errori, etc...
+Su \file{message.h} sono documentati i dettagli delle comunicazioni a seconda del messaggio: messaggio che il client invia al server, risposta del server, possibili errori.
 
-fd usati:
-0, 1, 2: stdin, stdout, stderr
-3: il socket su cui accetta connessioni
-4: read end della pipe per interrompere la select
-5 - 4+MaxConnections: dedicati ai socket su cui si possono connettere i client
-5+MaxConnections - 4+MaxConnections+ThreadsInPool: dedicati ai worker per aprire
-i file
-5+MaxConnections+ThreadsInPool: per scrivere sul file delle statistiche
-6+MaxConnections+ThreadsInPool: write end della pipe per interrompere la select
+Entrambe queste documentazioni si possono vedere dai file generati tramite Doxygen.
 
-Per evitare problemi con il numero massimo di connessioni (gestite
-con i numeri di fd) i fd dei file vengono sempre spostati con dup2 sul valore
-MaxConnections + 5 + workerNumber (così si evitano collisioni tra i worker).
+Il server gestite le comunicazioni con i client tramite file descriptor (i \textit{fd}): ad ogni client, quando si connette tramite il socket, viene fatto corrispondere un fd dal server. I fd vengono usati anche per altre operazioni di I/O del server, e sono assegnati come segue:
+\begin{itemize}
+	\item 0, 1, 2: stdin, stdout, stderr rispettivamente
+	\item 3: il socket su cui il server accetta nuove connessioni
+	\item 4: read end della pipe usata internamente per interrompere la select (vedi \autoref{comunicazioni-interne})
+	\item 5 - (4 + \codeName{MaxConnections}): riservati ai socket tramite i quali i client comunicano con il server
+	\item (5 + \codeName{MaxConnections}) - (4 + \codeName{MaxConnections} + \codeName{ThreadsInPool}): riservati ai worker per aprire nuovi file (ogni worker usa solo il fd 5 + \codeName{MaxConnections} + \codeName{workerNumber})
+	\item 5 + \codeName{MaxConnections} + \codeName{ThreadsInPool}: riservato per scrivere sul file delle statistiche
+	\item 6 + \codeName{MaxConnections} + \codeName{ThreadsInPool}: write end della pipe interna
+\end{itemize}
+Dato che quando i fd vengono creati è il sistema operativo ad assegnarli, per assicurarsi di avere ogni fd sul valore giusto viene usata la chiamata di sistema \codeName{dup2}.
 
-\subsection{Comunicazioni interne}
-I thread worker e il listener comunicano tramite una coda condivisa su cui
-vengono messi i fd dei client che hanno mandato una richiesta. Quando il listener
-trova un descrittore pronto, lo inserisce nella coda e lo rimuove dalla bitmap.
-Quando un worker finisce di servire un fd lo comunica al listener tramite una
-variabile condivisa e gli invia un segnale SIGUSR2 (per interrompere la select).
-Quando termina una select, il listener verifica se è stato interrotto da un segnale
-(e in questo caso verifica se c'è qualche fd da rimettere nella bitmap) oppure
-se c'è qualche nuova connessione in attesa.
+Questa politica di assegnazione dei fd viene anche usata dal \codeName{listener} per controllare se è stato raggiunto il massimo numero di connessioni, vedere \autoref{strutture-dati} per i dettagli.
 
-Ogni worker e il listener hanno una comunicazione diretta, formata da una
-variabile di informazione e un ack. Se l'ack è a 0 vuol dire che il worker può
-scrivere nella variabile di informazione, se l'ack è a 1 vuol dire che il
-listener deve leggere il valore. Non c'è bisogno di lock su questa comunicazione
-perché è a due entità, ognuna che lavora solo se l'ack ha il suo valore e che
-una volta finita l'elaborazione cambia l'ack al valore dell'altra (quindi
-agiscono per forza alternate).
-NON FUNZIONA RACE CONDITION: potrebbe arrivarmi un SIGUSR2 mentre controllo gli
-ack a 1 e quindi il listener si blocca sulla select. Quello che vorrei fare è
-atomicamente mascherare/smascherare SIGUSR1 e terminare/iniziare la select. La
-soluzione è un po' diversa, basata su http://sites.e-advies.nl/unix-signals.html
+\subsection{Comunicazioni interne}\label{comunicazioni-interne}
+I vari thread del server comunicano tra di loro in vari modi. Oltre alle comunicazioni esposte in questa sezione ce ne sono alcune implicite dovute alle variabili condivise (per esempio \codeName{nickname\_htable}) che non vengono discusse, ma dovrebbero risultare chiare una volta letta la \autoref{strutture-dati}.
 
-\subsection{Strutture dati condivise}
+Le principali comunicazioni sono tre: \codeName{listener} $\rightarrow$ \codeName{workers}, \codeName{worker} $\rightarrow$ \codeName{listener}, \codeName{signal handler} $\rightarrow$ \codeName{listener} e \codeName{workers}.
+
+La comunicazione dal \codeName{listener} ai \codeName{workers} serve per passare a questi i fd dei client che hanno inviato una richiesta e viene gestita con una semplice coda condivisa, \codeName{queue}. Quando il \codeName{listener} trova un fd pronto lo inserisce nella coda e lo rimuove dalla bitmap su cui esegue la \codeName{select}. I \codeName{worker} estraggono dalla coda e gestiscono la richiesta.
+
+La comunicazione da un \codeName{worker} al \codeName{listener} serve per restituire al listener i fd dei client che non si sono disconnessi dopo che è stata eseguita la loro richiesta. Ogni \codeName{worker} ha un canale dedicato di comunicazione con il \codeName{listener} formato da due variabili: una di informazione e un ack.
+Se l'ack è 0 vuol dire che l'ultima operazione sul canale è stata del \codeName{listener}, mentre se è 1 l'ultima operazione è stata del \codeName{worker}. L'operazione del \codeName{listener} sul canale è quella di leggere il valore della variabile di informazione, poi impostare l'ack a 0. L'operazione del \codeName{worker} è di scrivere un valore nella variabile di informazione, poi impostare l'ack a 1. Se uno dei due thread vuole operare sul canale per prima cosa controlla l'ack, se l'ultima operazione risulta essere stata sua allora non fa niente, in questo modo viene garantito che i due thread agiscano sul canale alternativamente, evitando il rischio di perdere messaggi anche senza la necessità di lock.
+Nel caso del \codeName{listener} non fare nulla vuol dire continuare la sua esecuzione senza fare nessuna operazione sul canale. Nel caso del \codeName{worker} vuol dire inviare un segnale \textbf{SIGUSR2} al \codeName{signal handler}, poi mettersi in attesa con \codeName{sched\_yield}. Il \codeName{signal handler}, quando riceve il segnale, scrive sulla pipe interna un valore fasullo, in modo da far arrivare al \codeName{listener} un segnale che gli impedisce di bloccarsi nella \codeName{select} se ha comunicazioni pendenti da qualche \codeName{worker}.
+Quando il \codeName{listener} termina una \codeName{select} controlla se il fd della pipe interna è attivo. Se questo è vero svuota la pipe (in realtà legge fino a \codeName{ThreadsInPool} byte, anche se questo non garantisce di svuotarla non è un problema dato che se la pipe non viene svuotata semplicemente il \codeName{listener} controllerà i canali di tutti i \codeName{worker} una volta inutilmente) e prova a leggere da tutti i canali di comunicazione, eseguendo effettivamente l'operazione solo per quei canali che hanno l'ack a 1.
+Questa soluzione è stata raggiunta migliorandone una inizialmente non funzionante (vedere \autopageref{difficolta}), ed è basata su quanto spiegato sulla pagina \url{http://sites.e-advies.nl/unix-signals.html}.
+
+La comunicazione dal \codeName{signal handler} agli altri thread serve per segnalare loro di interrompere l'esecuzione prima di terminare completamente il server liberando tutte le risorse allocate. Avviene tramite la variabile globale \codeName{threads\_continue}, utilizzata come condizione del \codeName{while} che contiene il corpo del codice dei thread, la pipe interna (per comunicare con il \codeName{listener}) e la coda condivisa (per comunicare con i \codeName{worker}). Quando il \codeName{signal handler} vuole terminare l'esecuzione degli altri thread imposta \codeName{threads\_continue = false}, poi manda l'ack al \codeName{listener} per farlo uscire dalla \codeName{select} (una volta fatto questo il thread termina perché la condizione del \codeName{while} è diventata falsa) e inserisce nella coda condivisa \codeName{ThreadsInPool} volte un fd falso (con valore \codeName{TERMINATION\_FD}). Quando un \codeName{worker} estrare questo valore dalla coda condivisa termina la sua esecuzione.
+Questo protocollo di terminazione ha il problema che potrebbe dover prima eseguire fino ad una operazione della coda condivisa per ogni \codeName{worker}, ma non ha problemi di terminazione. Infatti l'unica chiamata bloccante nel codice del \codeName{listener} è la \codeName{select}, che non può bloccarlo perché riceve il segnale sulla pipe interna, mentre gli unici punti in cui può bloccarsi un \codeName{worker} sono la \codeName{pop} dalla coda condivisa (che non può bloccare dato che in coda c'è almeno un \codeName{TERMINATION\_FD} per ogni \codeName{worker}) e la comunicazione con il \codeName{listener}, che non può bloccare perché prima di terminare il \codeName{listener} legge tutti i messaggi che erano rimasti pendenti.
+
+\subsection{Strutture dati condivise}\label{strutture-dati}
 Le strutture dati condivise sono:
 \begin{itemize}
 	\item queue
@@ -206,56 +201,63 @@ lettura. Gli altri thread invece devono sincronizzare le letture per attendere
 le scritture dell'eventuale worker che sta gestendo fd.
 num\_connected va sincronizzato completamente perché tutti i worker possono
 accedervi sia in lettura che in scrittura.
-* le mutex dei singoli nickname\_t, che servono a sincronizzare qualsiasi modifica
-alla struttura dati.
-La garanzia che un solo worker stia gestendo un fd viene dal fatto che il
-listener mette in coda solo fd su cui ha aperto nuove connessioni, cosa che può
-succedere solo se l'fd è stato chiuso dal worker che lo stava gestendo prima.
-Ci sono casi in cui un thread acquisisce sia connected\_mutex che la mutex di un
-nickname\_t. Per evitare deadlock, connected\_mutex viene sempre acquisita prima.
+* le mutex dei singoli nickname\_t, che servono a sincronizzare qualsiasi modifica alla struttura dati.
+La garanzia che un solo worker stia gestendo un fd viene dal fatto che il listener mette in coda solo fd su cui ha aperto nuove connessioni, cosa che può succedere solo se l'fd è stato chiuso dal worker che lo stava gestendo prima. Ci sono casi in cui un thread acquisisce sia connected\_mutex che la mutex di un nickname\_t. Per evitare deadlock, connected\_mutex viene sempre acquisita prima.
 
 \subsection{Gestione dei segnali}\label{gestione-segnali}
-Se il gestore dei segnali riceve un segnale SIGUSR1 lo gestisce scrivendo su file
-quello che deve scrivere (durante questa operazione non gestisce altri segnali).
-Se riceve SIGINT, SIGTERM o SIGQUIT invia un soft break a listener e workers e
-ritorna al main, il quale aspetta la fine degli altri threads e poi libera la
-memoria allocata.
+Il server gestisce i segnali richiesti (\textbf{SIGINT}, \textbf{SIGTERM}, \textbf{SIGQUIT}, \textbf{SIGUSR1}) e il segnale \textbf{SIGUSR2}, usato internamente per la comunicazione tra thread.
 
-\subsection{Precisazioni di specifiche}
-In caso di errori durante l'esecuzione di una richiesta (es: REGISTER\_OP con
-nickname già esistente) il server disconnette il client.
+Tutti i thread mascherano tutti questi segnali. Il \codeName{signal handler} utilizza \codeName{sigwait} per aspettare uno di questi segnali, e quando lo riceve lo gestisce. Se riceve \textbf{SIGUSR1} apre il file delle statistiche, ci aggiunge la nuova riga e poi lo richiude. Se riceve \textbf{SIGINT}, \textbf{SIGTERM} o \textbf{SIGQUIT} invia un soft break a \codeName{listener} e \codeName{workers}, poi ritorna al main, il quale aspetta la fine degli altri threads e poi libera la memoria allocata. Se riceve \textbf{SIGUSR2} scrive un ack su un'apposita pipe su cui il \codeName{listener} è in ascolto tramite la \codeName{select} in modo da interrompere la chiamata (vedere \autoref{comunicazioni-interne} per l'utilizzo di questo segnale).
 
-Nonostante quello che fa il client di prova, il server permette UNREGISTER\_OP
-solo per deregistrare il nickname con cui si è connessi.
+\subsection{Precisazioni alle specifiche}
+Dato che durante l'implementazione ho trovato alcuni punti non precisati nelle specifiche di chatterbox, ho deciso arbitrariamente i requisiti da soddisfare. In questa sezione elenco queste mie scelte, che ho fatto rispettando sia le richieste esplicite della consegna (\file{chatterbox18.pdf}) che quelle implicite dovute al codice di \file{client.c} e dei test forniti.
 
-Le statistiche posso farle sceme perché tanto il test è debole: se uno chiede la
-sua history non aumenta i messaggi consegnati. Messaggi non consegnati invece
-aumenta ogni volta che il tizio a cui devo inviare non è connesso, e non cala
-mai. Gli errori aumentano ogni volta che il server risponde picche ad un client:
-non crescono se nel server esplode qualcosa ma non viene risposto male al
-client, non crescono se il client chiude la connessione di violenza.
+In caso di errori gravi durante l'esecuzione di una richiesta (richiesta di operazione da un nickname inesistente, richiesta su un fd con nickname diverso da quello che si era connesso su quel fd, registrazione di un nickname già esistente, connessione con un nickname già connesso, connessione con un nickname inesistente) il server disconnette il client. In caso di altri errori il server invia solamente il messaggio di fallimento, senza disconnettere il client.
+
+Nonostante il client di prova non effettui questo controllo (anche se nei test viene sempre rispettato), il server permette UNREGISTER\_OP solo per deregistrare il nickname con cui si è connessi. Non è possibile cancellare un altro nickname.
+
+Per alcune statistiche non mi è risultato ovvio capire esattamente quando modificarle. Di seguito i dettagli di quando vengono aggiornate queste statistiche (non riporto quelle che mi sono sembrate ovvie):
+\begin{itemize}
+	\item{ndelivered} Viene aumentata solo quando l'utente che deve riceve il messaggio è online nel momento in cui questo viene inviato. In particolare viene aumentata anche se il messaggio non viene consegnato a causa di un errore (ma il client è online) e NON aumenta se un client richiede la sua history.
+	\item{nnotdelivered} Viene aumentata ogni volta che un utente non riceve un messaggio appena inviato da un altro client perché non è connesso. Non aumenta a seguito di errori durante l'invio di un messaggio, sia che avvengano quando il messaggio viene generato che quando viene richiesta la history.
+	\item{nfiledelivered} Viene aumentata ogni volta che un client richiede una GETFILE\_OP che viene eseguita con successo. Non viene aumentata in nessun altro caso.
+	\item{nfilenotdelivered} Viene aumentata ogni volta che un utente invia un file ma il destinatario non è connesso. Non viene aumentata in nessun altro caso.
+	\item{nerrors} Viene aumentata ogni volta che il server risponde ad un client con un qualche tipo di fallimento. In particolare non aumenta se nel server avvengono degli errori ma non viene inviata nessuna risposta al client, nè se un client chiude la connessione senza disconnettersi.
+\end{itemize}
+Nessuna di queste statistiche può mai calare.
+
 
 \section{Suddivisione del codice}
-Il codice è principalmente nel file chatty.c, che contiene tutta l'implementazione delle parti specifiche del server. Avevo pensato di separarlo in almeno due file (chatty.c e worker.c) data la dimensione del codice dei worker, ma l'utilizzo massiccio di variabili globali condivise tra i thread mi ha convinto a lasciare un file unico.
+Il codice è principalmente nel file \file{chatty.c}, che contiene tutta l'implementazione delle parti specifiche del server. Avevo pensato di separarlo in almeno due file (\file{chatty.c} e \file{worker.c}) data la dimensione del codice dei worker, ma l'utilizzo massiccio di variabili globali condivise tra i thread mi ha convinto a lasciare un file unico.
 
-Gli altri file sono stati creati per essere completamente modulari. Ognuno di quei file può essere preso e riutilizzato per un altro progetto (fifo.c l'avevo già scritto per uno degli esercizi svolti durante il corso).
+Gli altri file sono stati creati per essere completamente modulari. Ognuno di quei file può essere preso e riutilizzato per un altro progetto (\file{fifo.c} l'avevo già scritto per uno degli esercizi svolti durante il corso). L'elenco dei moduli (composti da file .c e .h) è:
+\begin{itemize}
+	\item connections (richiesto dalla consegna): contiene le funzioni che implementano il protocollo tra i clients ed il server.
+	\item fifo: libreria per la coda condivisa. 
+	\item hashtable: libreria per l'hashtable condivisa.
+	\item icl\_hash (fornito dai docenti): libreria per l'hashtable.
+	\item lock: libreria per lock e unlock un po' più robuste.
+	\item message (richiesto dalla consegna): contiene il tipo dei messaggi che client e server si scambiano.
+	\item nickname: libreria per la struttura dati nickname\_t, elementi dell'hashtable dei nickname.
+\end{itemize}
+
+Oltre a questi moduli sviluppati apposta per il progetto sono state usate molte librerie di sistema Linux.
 
 \section{Test}
-
-
-
-\section{Varie ed eventuali}
-\subsection{Difficoltà incontrate}
-
-\subsection{Cose brutte in giro}
-Non c'è nessun tipo di protezione dei file (?!): se qualcuno invia un file con
-lo stesso nome di un altro, quello vecchio viene sovrascritto. Ancora meglio, se
-due client inviano due file con lo stesso nome insieme il server non si fa
-problemi a scrivere sul file da due thread diversi, con tutti gli errori che ne
-conseguono. 
+\subsection{Test aggiuntivi}
+Oltre ai test forniti dai docenti ho realizzato alcuni test per verificare il funzionamento (almeno generale) dei moduli che ho implementato. Ho quindi creato \file{testconnections.c}, \file{testfifo} e \file{testhashtable} per testare i moduli omonimi. Ho anche utilizzato \file{testicl\_hash.c}, fornito dai docenti. Per eseguire questi test ho creato delle regole apposite nel Makefile, chiamate \textit{runtest\textless nome\textgreater}.
 
 \subsection{Test fisici}
-Ho provato il programma sul mio computer personale (Debian 10 "Buster", processore x64, 2 core, 4 processori virtuali) e su un altro computer fisso (Debian 9 "Stretch", processore x64, 2 core, 4 processori virtuali). Inoltre sul mio computer personale ho avviato la macchina virtuale del corso (Xubuntu 14.10, )
+Ho provato il programma sul mio computer personale (Debian 10 "Buster", processore x64, 2 core, 4 processori virtuali) e su un altro computer fisso (Debian 9 "Stretch", processore x64, 2 core, 4 processori virtuali). Inoltre sul mio computer personale ho avviato la macchina virtuale del corso (Xubuntu 14.10, 2 processori virtuali). Su tutte queste macchine ho eseguito con successo tutti e 5 i test presentati dai docenti.
+
+Inoltre sul mio computer personale ho eseguito con successo i test aggiuntivi preparati da me per i moduli del progetto. Ho eseguito ulteriori test del server durante lo sviluppo, ma li ho realizzati avviando il server e alcuni client da linea di comando, senza nessuno script.
+
+\section{Varie ed eventuali}
+\subsection{Difficoltà incontrate}\label{difficolta}
+NON FUNZIONA RACE CONDITION: potrebbe arrivarmi un SIGUSR2 mentre controllo gli ack a 1 e quindi il listener si blocca sulla select. Quello che vorrei fare è atomicamente mascherare/smascherare SIGUSR1 e terminare/iniziare la select. La soluzione è un po' diversa, basata su 
+
+\subsection{Known bugs}
+Non c'è nessun tipo di protezione dei file: se qualcuno invia un file con lo stesso nome di un altro, quello vecchio viene sovrascritto. Ancora meglio, se due client inviano due file con lo stesso nome insieme il server non si fa problemi a scrivere sul file da due thread diversi, con tutti gli errori che ne conseguono.
 
 \subsection{Appunti per i docenti}
 Per il test3 \textit{MaxFileSize = 50} in \file{chatty.conf2} con il mio codice non funziona perché \file{client} risulta più grande di 50KiB. Basta cambiare il valore con 70.
@@ -271,5 +273,7 @@ Il test4 fallisce perché cerca di inviare il file \file{listener.o}, che non es
 Quando il client stampa la risposta in caso di risposta di errore c'è:
 \lstinputlisting[language=C, firstline=212, lastline=212]{../client.c}
 ma la condizione è mai vera dato che prima viene eseguita \codeName{readHdr}, quindi \codeName{msg.data} non viene letto.
+
+Inoltre il client è indentato metà con spazi e metà con tab pensati per essere lunghi 8 caratteri. Questo ha reso abbastanza seccante la lettura del codice, dato che la mia impostazione è di usare tab lunghi 4 spazi (quindi i livelli di indentazione nel client venivano collassati a due a due). La soluzione più ovvia (e più portabile) a questo problema è di indentare tutto il client usando lo stesso tipo di caratteri.
 
 \end{document}
