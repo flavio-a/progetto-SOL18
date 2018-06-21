@@ -1,6 +1,9 @@
-- ricontrollare tutte le sincronizzazioni e gli usi delle variabili condivise
-  - probabilmente serve sincronizzare l'utilizzo degli fd dei client (si possono
-    usare le mutex della nickname_htable?)
-- ricontrollare tutto il codice per il formato richiesto (soprattutto commenti)
+- probabilmente serve sincronizzare l'utilizzo degli fd dei client (si possono
+  usare le mutex della nickname_htable?)
+- gestire rimozioni con i puntatori mandati fuori dalle ricerche (si può fare
+  aumentando un contatore dell'elemento ogni volta che faccio una hash_find e
+  bloccando la remove su una variabile di condizione se il contatore è > 0?)
+
 AHAHAHAHAH NO:
 - scrivere qualcosa di più sensato per leggere il file di configurazione
+- implementare il puntatore multiriferimento

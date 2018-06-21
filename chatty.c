@@ -52,6 +52,17 @@ statistics chattyStats = { 0,0,0,0,0,0,0 };
 pthread_mutex_t stats_mutex;
 
 /**
+ * Macro per incrementare le statistiche in modo sicuro
+ *
+ * @param statName il nome della statistica da incrementare
+ */
+#define increaseStat(statName) \
+	error_handling_lock(&stats_mutex); \
+	++chattyStats.statName; \
+	error_handling_unlock(&stats_mutex)
+
+
+/**
  * Coda condivisa che contiene i messaggi
  */
 fifo_t queue;
@@ -277,9 +288,7 @@ void* listener_thread(void* arg) {
 							}
 						}
 						else {
-							error_handling_lock(&stats_mutex);
-							++chattyStats.nerrors;
-							error_handling_unlock(&stats_mutex);
+							increaseStat(nerrors);
 							close(newfd);
 						}
 					}
@@ -314,9 +323,7 @@ void* listener_thread(void* arg) {
 	setHeader(&response.hdr, err_op, ""); \
 	if (!sendHdrResponse(fd, &response.hdr)) \
 		disconnectClient(fd); \
-	error_handling_lock(&stats_mutex); \
-	++chattyStats.nerrors; \
-	error_handling_unlock(&stats_mutex)
+	increaseStat(nerrors)
 
 /**
  * @brief Risponde con un errore ad un client, ma potrebbe non chiudere la connessione.
@@ -329,9 +336,7 @@ void* listener_thread(void* arg) {
 #define sendSoftFailResponse(response, fd, err_op, fdclose) \
 	setHeader(&response.hdr, err_op, ""); \
 	fdclose = sendHdrResponse(fd, &response.hdr); \
-	error_handling_lock(&stats_mutex); \
-	++chattyStats.nerrors; \
-	error_handling_unlock(&stats_mutex)
+	increaseStat(nerrors)
 
 /**
  * @brief Modifica le strutture dati necessarie alla disconnessione di un client
@@ -690,15 +695,11 @@ void* worker_thread(void* arg) {
 									// il client a chiedergli di nuovo il messaggio.
 									sendRequest(receiver->fd, &msg);
 									error_handling_unlock(&(receiver->mutex));
-									error_handling_lock(&stats_mutex);
-									++chattyStats.ndelivered;
-									error_handling_unlock(&stats_mutex);
+									increaseStat(ndelivered);
 								}
 								else {
 									error_handling_unlock(&(receiver->mutex));
-									error_handling_lock(&stats_mutex);
-									++chattyStats.nnotdelivered;
-									error_handling_unlock(&stats_mutex);
+									increaseStat(nnotdelivered);
 								}
 								// Mette a NULL in modo che non venga deallocato
 								msg.data.buf = NULL;
@@ -743,15 +744,11 @@ void* worker_thread(void* arg) {
 								if (val->fd > 0) {
 									sendRequest(val->fd, &msg);
 									error_handling_unlock(&(val->mutex));
-									error_handling_lock(&stats_mutex);
-									++chattyStats.ndelivered;
-									error_handling_unlock(&stats_mutex);
+									increaseStat(ndelivered);
 								}
 								else {
 									error_handling_unlock(&(val->mutex));
-									error_handling_lock(&stats_mutex);
-									++chattyStats.nnotdelivered;
-									error_handling_unlock(&stats_mutex);
+									increaseStat(nnotdelivered);
 								}
 							}
 							msg.data.buf = original_buffer;
@@ -850,9 +847,7 @@ void* worker_thread(void* arg) {
 									}
 									else {
 										error_handling_unlock(&(receiver->mutex));
-										error_handling_lock(&stats_mutex);
-										++chattyStats.nfilenotdelivered;
-										error_handling_unlock(&stats_mutex);
+										increaseStat(nfilenotdelivered);
 									}
 									// Mette a NULL in modo che non venga deallocato
 									msg.data.buf = NULL;
@@ -926,9 +921,7 @@ void* worker_thread(void* arg) {
 								setHeader(&response.hdr, OP_OK, "");
 								setData(&response.data, "", mappedfile, st.st_size);
 								fdclose = sendMsgResponse(localfd, &response);
-								error_handling_lock(&stats_mutex);
-								++chattyStats.nfiledelivered;
-								error_handling_unlock(&stats_mutex);
+								increaseStat(nfiledelivered);
 							}
 							close(MaxConnections + workerNumber);
 							free(full_filename);

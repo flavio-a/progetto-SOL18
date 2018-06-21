@@ -134,17 +134,28 @@ Questa politica di assegnazione dei fd viene anche usata dal \codeName{listener}
 \subsection{Comunicazioni interne}\label{comunicazioni-interne}
 I vari thread del server comunicano tra di loro in vari modi. Oltre alle comunicazioni esposte in questa sezione ce ne sono alcune implicite dovute alle variabili condivise (per esempio \codeName{nickname\_htable}) che non vengono discusse, ma dovrebbero risultare chiare una volta letta la \autoref{strutture-dati}.
 
-Le principali comunicazioni sono tre: \codeName{listener} $\rightarrow$ \codeName{workers}, \codeName{worker} $\rightarrow$ \codeName{listener}, \codeName{signal handler} $\rightarrow$ \codeName{listener} e \codeName{workers}.
+Le principali comunicazioni sono tre: \codeName{listener} $\rightarrow$ \codeName{worker}, \codeName{worker} $\rightarrow$ \codeName{listener}, \codeName{signal handler} $\rightarrow$ \codeName{listener} e \codeName{worker}.
 
-La comunicazione dal \codeName{listener} ai \codeName{workers} serve per passare a questi i fd dei client che hanno inviato una richiesta e viene gestita con una semplice coda condivisa, \codeName{queue}. Quando il \codeName{listener} trova un fd pronto lo inserisce nella coda e lo rimuove dalla bitmap su cui esegue la \codeName{select}. I \codeName{worker} estraggono dalla coda e gestiscono la richiesta.
+\
+
+La comunicazione dal \codeName{listener} ai \codeName{worker} serve per passare a questi i fd dei client che hanno inviato una richiesta e viene gestita con una semplice coda condivisa, \codeName{queue}. Quando il \codeName{listener} trova un fd pronto lo inserisce nella coda e lo rimuove dalla bitmap su cui esegue la \codeName{select}. I \codeName{worker} estraggono dalla coda e gestiscono la richiesta.
+
+\
 
 La comunicazione da un \codeName{worker} al \codeName{listener} serve per restituire al listener i fd dei client che non si sono disconnessi dopo che è stata eseguita la loro richiesta. Ogni \codeName{worker} ha un canale dedicato di comunicazione con il \codeName{listener} formato da due variabili: una di informazione e un ack.
-Se l'ack è 0 vuol dire che l'ultima operazione sul canale è stata del \codeName{listener}, mentre se è 1 l'ultima operazione è stata del \codeName{worker}. L'operazione del \codeName{listener} sul canale è quella di leggere il valore della variabile di informazione, poi impostare l'ack a 0. L'operazione del \codeName{worker} è di scrivere un valore nella variabile di informazione, poi impostare l'ack a 1. Se uno dei due thread vuole operare sul canale per prima cosa controlla l'ack, se l'ultima operazione risulta essere stata sua allora non fa niente, in questo modo viene garantito che i due thread agiscano sul canale alternativamente, evitando il rischio di perdere messaggi anche senza la necessità di lock.
-Nel caso del \codeName{listener} non fare nulla vuol dire continuare la sua esecuzione senza fare nessuna operazione sul canale. Nel caso del \codeName{worker} vuol dire inviare un segnale \textbf{SIGUSR2} al \codeName{signal handler}, poi mettersi in attesa con \codeName{sched\_yield}. Il \codeName{signal handler}, quando riceve il segnale, scrive sulla pipe interna un valore fasullo, in modo da far arrivare al \codeName{listener} un segnale che gli impedisce di bloccarsi nella \codeName{select} se ha comunicazioni pendenti da qualche \codeName{worker}.
-Quando il \codeName{listener} termina una \codeName{select} controlla se il fd della pipe interna è attivo. Se questo è vero svuota la pipe (in realtà legge fino a \codeName{ThreadsInPool} byte, anche se questo non garantisce di svuotarla non è un problema dato che se la pipe non viene svuotata semplicemente il \codeName{listener} controllerà i canali di tutti i \codeName{worker} una volta inutilmente) e prova a leggere da tutti i canali di comunicazione, eseguendo effettivamente l'operazione solo per quei canali che hanno l'ack a 1.
-Questa soluzione è stata raggiunta migliorandone una inizialmente non funzionante (vedere \autopageref{difficolta}), ed è basata su quanto spiegato sulla pagina \url{http://sites.e-advies.nl/unix-signals.html}.
 
-La comunicazione dal \codeName{signal handler} agli altri thread serve per segnalare loro di interrompere l'esecuzione prima di terminare completamente il server liberando tutte le risorse allocate. Avviene tramite la variabile globale \codeName{threads\_continue}, utilizzata come condizione del \codeName{while} che contiene il corpo del codice dei thread, la pipe interna (per comunicare con il \codeName{listener}) e la coda condivisa (per comunicare con i \codeName{worker}). Quando il \codeName{signal handler} vuole terminare l'esecuzione degli altri thread imposta \codeName{threads\_continue = false}, poi manda l'ack al \codeName{listener} per farlo uscire dalla \codeName{select} (una volta fatto questo il thread termina perché la condizione del \codeName{while} è diventata falsa) e inserisce nella coda condivisa \codeName{ThreadsInPool} volte un fd falso (con valore \codeName{TERMINATION\_FD}). Quando un \codeName{worker} estrare questo valore dalla coda condivisa termina la sua esecuzione.
+Se l'ack è 0 vuol dire che l'ultima operazione sul canale è stata del \codeName{listener}, mentre se è 1 l'ultima operazione è stata del \codeName{worker}. L'operazione del \codeName{listener} sul canale è quella di leggere il valore della variabile di informazione, poi impostare l'ack a 0. L'operazione del \codeName{worker} è di scrivere un valore nella variabile di informazione, poi impostare l'ack a 1. Se uno dei due thread vuole operare sul canale per prima cosa controlla l'ack, se l'ultima operazione risulta essere stata sua allora non fa niente, in questo modo viene garantito che i due thread agiscano sul canale alternativamente, evitando il rischio di perdere messaggi anche senza la necessità di lock.
+
+Nel caso del \codeName{listener} non fare nulla vuol dire continuare la sua esecuzione senza fare nessuna operazione sul canale. Nel caso del \codeName{worker} vuol dire inviare un segnale \textbf{SIGUSR2} al \codeName{signal handler}, poi mettersi in attesa con \codeName{sched\_yield}. Il \codeName{signal handler}, quando riceve il segnale, scrive sulla pipe interna un valore fasullo, in modo da far arrivare al \codeName{listener} un segnale che gli impedisce di bloccarsi nella \codeName{select} se ha comunicazioni pendenti da qualche \codeName{worker}.
+
+Quando il \codeName{listener} termina una \codeName{select} controlla se il fd della pipe interna è attivo. Se questo è vero svuota la pipe (in realtà legge fino a \codeName{ThreadsInPool} byte, anche se questo non garantisce di svuotarla non è un problema dato che se la pipe non viene svuotata semplicemente il \codeName{listener} controllerà i canali di tutti i \codeName{worker} una volta inutilmente) e prova a leggere da tutti i canali di comunicazione, eseguendo effettivamente l'operazione solo per quei canali che hanno l'ack a 1.
+
+Questa soluzione è stata raggiunta migliorandone una inizialmente non funzionante (vedere \autoref{difficolta}), ed è basata su quanto spiegato sulla pagina \url{http://sites.e-advies.nl/unix-signals.html}.
+
+\
+
+La comunicazione dal \codeName{signal handler} agli altri thread serve per segnalare loro di interrompere l'esecuzione prima di terminare completamente il server liberando tutte le risorse allocate. Avviene tramite la variabile globale \codeName{threads\_continue}, utilizzata come condizione del \codeName{while} che contiene il corpo del codice dei thread, la pipe interna (per comunicare con il \codeName{listener}) e la coda condivisa (per comunicare con i \codeName{worker}). Quando il \codeName{signal handler} vuole terminare l'esecuzione degli altri thread imposta \codeName{threads\_continue} a \codeName{false}, poi manda l'ack al \codeName{listener} per farlo uscire dalla \codeName{select} (una volta fatto questo il thread termina perché la condizione del \codeName{while} è diventata falsa) e inserisce nella coda condivisa \codeName{ThreadsInPool} volte un fd falso (con valore \codeName{TERMINATION\_FD}). Quando un \codeName{worker} estrare questo valore dalla coda condivisa termina la sua esecuzione.
+
 Questo protocollo di terminazione ha il problema che potrebbe dover prima eseguire fino ad una operazione della coda condivisa per ogni \codeName{worker}, ma non ha problemi di terminazione. Infatti l'unica chiamata bloccante nel codice del \codeName{listener} è la \codeName{select}, che non può bloccarlo perché riceve il segnale sulla pipe interna, mentre gli unici punti in cui può bloccarsi un \codeName{worker} sono la \codeName{pop} dalla coda condivisa (che non può bloccare dato che in coda c'è almeno un \codeName{TERMINATION\_FD} per ogni \codeName{worker}) e la comunicazione con il \codeName{listener}, che non può bloccare perché prima di terminare il \codeName{listener} legge tutti i messaggi che erano rimasti pendenti.
 
 \subsection{Strutture dati condivise}\label{strutture-dati}
@@ -152,11 +163,11 @@ Ci sono molte strutture dati condivise.
 
 \
 
-Le statistiche \codeName{chattyStats} e la relativa mutex \codeName{stats\_mutex}, che serve perché le statistiche possono essere modificate da più thread.
+Le statistiche \codeName{chattyStats} e la relativa mutex \codeName{stats\_mutex}, che serve perché le statistiche possono essere modificate da più thread. La mutex non viene usata in lettura per stampare le statistiche perché non importa se stanno venendo aggiornate in quel momento, o vengono stampate quelle prima dell'aggiornamento o quelle dopo, ma entrambi i casi vanno bene.
 
 \
 
-La coda condivisa \codeName{queue}, usata per passare i fd dal \codeName{listener} ai \codeName{workers}, gestita con la classica politica produttore-consumatore, sfrutta una variabile di condizione per far attendere i consumatori quando la coda è vuota (essendo gestita con una lista non c'è una capienza massima, quindi il produttore non aspetta mai).
+La coda condivisa \codeName{queue}, usata per passare i fd dal \codeName{listener} ai \codeName{worker}, gestita con la classica politica produttore-consumatore, sfrutta una variabile di condizione per far attendere i consumatori quando la coda è vuota (essendo gestita con una lista non c'è una capienza massima, quindi il produttore non aspetta mai).
 
 \
 
@@ -164,11 +175,11 @@ Due array \codeName{freefd} e \codeName{freefd\_ack}, usati per implementare il 
 
 \
 
-L'hashtable \codeName{nickname\_htable} dei nickname, che contiene l'associazione nickname $\rightarrow$ informazioni sul nickname per ogni nickname registrato. Le informazioni sul nickname sono una variabile di tipo \codeName{nickname\_t}, definito appositamente. Gestisce la sua sincronizzazione con una mutex interna.
+L'hashtable \codeName{nickname\_htable} dei nickname, che contiene l'associazione nickname $\rightarrow$ informazioni sul nickname per ogni nickname registrato. Le informazioni sul nickname sono una variabile di tipo \codeName{nickname\_t}, definito appositamente. Vista la richiesta di gestire fino a qualche decina di migliaia di utenti connessi e che i bucket vuoti dell'hashtable occupano poca memoria, per mantenere sempre un buon fattore di carico ho scelto di creare l'hashtable con 100\,000 bucket. Gestisce la sua sincronizzazione con una mutex interna.
 
-Sincronizza solo le operazioni di scrittura e non quelle di lettura (\codeName{hash\_find}). Questo è possibile perché le operazioni di scrittura lasciano in ogni momento l'hashtable in uno stato consistente: l'inserimento prima crea il nuovo elemento, inizializzandolo con tutti i valori, e lo inserisce nell'hashtable con un solo assegnamento (quindi atomico), dividendo quindi tra prima dell'assegnamento (in cui il nuovo valore non è nell'hashtable) e dopo (in cui è presente). La rimozione funziona allo stesso modo invertendo l'ordine delle operazioni. In questo modo le ricerche (unica operazioni di lettura) può trovare o meno l'elemento, ma in entrambi i casi è coerente.
+Sincronizza solo le operazioni di scrittura e non quelle di lettura (\codeName{hash\_find}). Questo è possibile perché le operazioni di scrittura lasciano in ogni momento l'hashtable in uno stato consistente: l'inserimento prima crea il nuovo elemento, inizializzandolo con tutti i valori, e lo inserisce nell'hashtable con un solo assegnamento (quindi atomico), dividendo quindi tra prima dell'assegnamento (in cui il nuovo valore non è nell'hashtable) e dopo (in cui è presente). La rimozione funziona allo stesso modo invertendo l'ordine delle operazioni. In questo modo la ricerca (unica operazioni di lettura) può trovare o meno l'elemento, ma in entrambi i casi è coerente.
 
-La rimozione potenzialmente può cancellare un elemento che sta venendo usato all'esterno dell'hashtable (perché ritornato precedentemente da un'operazione di find). Questo non si verifica in chatty perché l'unico caso in cui si rimuove un elemento dall'hashtable è dietro richiesta di UNREGISTER\_OP, che può essere eseguita solo dal \codeName{worker} che AHAHAHAHA NON È VERO POSSO STARGLI MANDANDO UN MESSAGGIO AHAHAHAH.
+%La rimozione potenzialmente può cancellare un elemento che sta venendo usato all'esterno dell'hashtable (perché ritornato precedentemente da un'operazione di find). Questo non si verifica in chatty perché l'unico caso in cui si rimuove un elemento dall'hashtable è dietro richiesta di UNREGISTER\_OP, che può essere eseguita solo dal \codeName{worker} che AHAHAHAHA NON È VERO POSSO STARGLI MANDANDO UN MESSAGGIO AHAHAHAH.
 
 \
 
@@ -182,7 +193,7 @@ Le operazioni sui file creano nuovi fd che il sistema assegna a valori nell'inte
 
 \
 
-La variabili \codeName{threads\_continue}, usata dal \codeName{signal handler} nel segnalare la terminazione agli altri thread (vedi \autoref{comunicazioni-interne}).
+La variabile \codeName{threads\_continue}, usata dal \codeName{signal handler} nel segnalare la terminazione agli altri thread (vedi \autoref{comunicazioni-interne}).
 
 \
 
@@ -207,7 +218,7 @@ Ci sono casi in cui un thread acquisisce sia \codeName{connected\_mutex} che la 
 \subsection{Gestione dei segnali}\label{gestione-segnali}
 Il server gestisce i segnali richiesti (\textbf{SIGINT}, \textbf{SIGTERM}, \textbf{SIGQUIT}, \textbf{SIGUSR1}) e il segnale \textbf{SIGUSR2}, usato internamente per la comunicazione tra thread.
 
-Tutti i thread mascherano tutti questi segnali. Il \codeName{signal handler} utilizza \codeName{sigwait} per aspettare uno di questi segnali, e quando lo riceve lo gestisce. Se riceve \textbf{SIGUSR1} apre il file delle statistiche, ci aggiunge la nuova riga e poi lo richiude. Se riceve \textbf{SIGINT}, \textbf{SIGTERM} o \textbf{SIGQUIT} invia un soft break a \codeName{listener} e \codeName{workers}, poi ritorna al main, il quale aspetta la fine degli altri threads e poi libera la memoria allocata. Se riceve \textbf{SIGUSR2} scrive un ack su un'apposita pipe su cui il \codeName{listener} è in ascolto tramite la \codeName{select} in modo da interrompere la chiamata (vedere \autoref{comunicazioni-interne} per l'utilizzo di questo segnale).
+Tutti i thread mascherano tutti questi segnali. Il \codeName{signal handler} utilizza \codeName{sigwait} per aspettare uno di questi segnali, e quando lo riceve lo gestisce. Se riceve \textbf{SIGUSR1} apre il file delle statistiche, ci aggiunge la nuova riga e poi lo richiude. Se riceve \textbf{SIGINT}, \textbf{SIGTERM} o \textbf{SIGQUIT} invia un soft break a \codeName{listener} e \codeName{worker}, poi ritorna al main, il quale aspetta la fine degli altri threads e poi libera la memoria allocata. Se riceve \textbf{SIGUSR2} scrive un ack su un'apposita pipe su cui il \codeName{listener} è in ascolto tramite la \codeName{select} in modo da interrompere la chiamata (vedere \autoref{comunicazioni-interne} per l'utilizzo di questo segnale).
 
 \subsection{Precisazioni alle specifiche}
 Dato che durante l'implementazione ho trovato alcuni punti non precisati nelle specifiche di chatterbox, ho deciso arbitrariamente i requisiti da soddisfare. In questa sezione elenco queste mie scelte, che ho fatto rispettando sia le richieste esplicite della consegna (\file{chatterbox18.pdf}) che quelle implicite dovute al codice di \file{client.c} e dei test forniti.
@@ -254,7 +265,7 @@ Inoltre sul mio computer personale ho eseguito con successo i test aggiuntivi pr
 
 \section{Altro}
 \subsection{Difficoltà incontrate}\label{difficolta}
-NON FUNZIONA RACE CONDITION: potrebbe arrivarmi un SIGUSR2 mentre controllo gli ack a 1 e quindi il listener si blocca sulla select. Quello che vorrei fare è atomicamente mascherare/smascherare SIGUSR1 e terminare/iniziare la select. La soluzione è un po' diversa, basata su 
+La prima soluzione adottata per la comunicazione da \codeName{worker} a \codeName{listener} (vedere \autoref{comunicazioni-interne}) prevedeva di mandare il segnale \textbf{SIGUSR2} direttamente al \codeName{listener} per interrompere la \codeName{select}, inoltre installava un handler che impostava a \codeName{true} un flag usato dal \codeName{listener} per capire che doveva controllare i messaggi dai \codeName{worker}. Questa soluzione però generava una race condition: il segnale poteva essere consegnato dopo il controllo ma prima della \codeName{select}. Quello che avrei voluto fare sarebbe stato mascherare/smascherare \textbf{SIGUSR2} e terminare/iniziare la \codeName{select} atomicamente (rispetto alla consegna dei segnali), cosa che non è possibile con l'interfaccia di UNIX. Alla fine quindi ho dovuto modificare la mia soluzione, raggiungendo quella descritta precedentemente.
 
 \subsection{Known bugs}
 Non c'è nessun tipo di protezione dei file: se qualcuno invia un file con lo stesso nome di un altro, quello vecchio viene sovrascritto. Ancora meglio, se due client inviano due file con lo stesso nome insieme il server non si fa problemi a scrivere sul file da due thread diversi, con tutti gli errori che ne conseguono.
@@ -270,7 +281,7 @@ Il test4 fallisce perché cerca di inviare il file \file{listener.o}, che non es
 
 \
 
-Quando il client stampa la risposta in caso di risposta di errore c'è:
+Quando il client stampa la risposta in caso di risposta di errore c'è la riga di codice:
 \lstinputlisting[language=C, firstline=212, lastline=212]{../client.c}
 ma la condizione è mai vera dato che prima viene eseguita \codeName{readHdr}, quindi \codeName{msg.data} non viene letto.
 
