@@ -13,7 +13,8 @@ FILE_DA_CONSEGNARE=Makefile chatty.c message.h ops.h stats.h config.h \
            DATA/chatty.conf1 DATA/chatty.conf2 connections.h \
            message.c lock.h lock.c fifo.h fifo.c icl_hash.h icl_hash.c \
            hashtable.h hashtable.c nickname.h nickname.c connections.c \
-		   testconnections.c testfifo.c testhashtable.c
+		   testconnections.c testfifo.c testhashtable.c testicl_hash.c \
+		   relazione/relazione.pdf client.c
 # inserire il nome del tarball: es. NinoBixio
 TARNAME=FlavioAscari
 # inserire il corso di appartenenza: CorsoA oppure CorsoB

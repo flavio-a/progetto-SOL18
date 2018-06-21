@@ -9,6 +9,8 @@
  *       flavio.ascari@sns.it
  */
 
+#define _XOPEN_SOURCE
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
