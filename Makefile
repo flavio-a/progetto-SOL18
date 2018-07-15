@@ -70,7 +70,8 @@ OBJECTS		= connections.o \
 			  fifo.o \
 			  icl_hash.o \
 			  hashtable.o \
-			  nickname.o
+			  nickname.o \
+			  worker.o
 
 # aggiungere qui gli altri include
 INCLUDE_FILES = connections.h \
@@ -82,7 +83,8 @@ INCLUDE_FILES = connections.h \
 				fifo.h \
 				icl_hash.h \
 				hashtable.h \
-				nickname.h
+				nickname.h \
+				worker.h
 
 .PHONY: all clean cleanall doc test1 test2 test3 test4 test5 consegna
 .SUFFIXES: .c .h

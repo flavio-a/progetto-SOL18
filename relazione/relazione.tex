@@ -239,7 +239,7 @@ Nessuna di queste statistiche può mai calare.
 
 
 \section{Suddivisione del codice}
-Il codice è principalmente nel file \file{chatty.c}, che contiene tutta l'implementazione delle parti specifiche del server. Avevo pensato di separarlo in almeno due file (\file{chatty.c} e \file{worker.c}) data la dimensione del codice dei worker, ma l'utilizzo massiccio di variabili globali condivise tra i thread mi ha convinto a lasciare un file unico.
+Il codice è principalmente nel file \file{chatty.c}, che contiene tutta l'implementazione delle parti specifiche del server, e nel file \file{worker.c}. Questo secondo file è stato separato da quello principale per la dimensione del codice dei worker e per la presenza di numerose funzioni di supporto (utilizzate per accorciare un po' la funzione principale).
 
 Gli altri file sono stati creati per essere completamente modulari. Ognuno di quei file può essere preso e riutilizzato per un altro progetto (\file{fifo.c} l'avevo già scritto per uno degli esercizi svolti durante il corso). L'elenco dei moduli (composti da file .c e .h) è:
 \begin{itemize}
